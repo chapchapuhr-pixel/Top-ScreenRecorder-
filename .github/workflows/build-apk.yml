@@ -45,7 +45,6 @@ jobs:
           gradle-version: '8.11.1'
 
       - name: Prepare Gradle Wrapper
-        working-directory: ./android
         run: |
           mkdir -p gradle/wrapper
           # Ensure gradle-wrapper.jar exists (download official jar if missing or empty)
@@ -62,7 +61,6 @@ jobs:
 
       - name: Build Debug APK
         if: ${{ github.event_name != 'workflow_dispatch' || github.event.inputs.build_type == 'debug' || github.event.inputs.build_type == 'both' }}
-        working-directory: ./android
         run: |
           if [ -f "gradle/wrapper/gradle-wrapper.jar" ] && [ -x "./gradlew" ]; then
             ./gradlew assembleDebug --stacktrace --no-daemon
@@ -72,7 +70,6 @@ jobs:
 
       - name: Build Release APK
         if: ${{ github.event_name != 'workflow_dispatch' || github.event.inputs.build_type == 'release' || github.event.inputs.build_type == 'both' }}
-        working-directory: ./android
         run: |
           if [ -f "gradle/wrapper/gradle-wrapper.jar" ] && [ -x "./gradlew" ]; then
             ./gradlew assembleRelease --stacktrace --no-daemon
@@ -85,7 +82,10 @@ jobs:
         run: |
           mkdir -p output-apks
           
-          DEBUG_APK=$(find android/app/build/outputs/apk/debug -name "*.apk" 2>/dev/null | head -n 1)
+          DEBUG_APK=$(find app/build/outputs/apk/debug -name "*.apk" 2>/dev/null | head -n 1)
+          if [ -z "$DEBUG_APK" ]; then
+            DEBUG_APK=$(find . -path "*/build/outputs/apk/debug/*.apk" 2>/dev/null | head -n 1)
+          fi
           if [ -n "$DEBUG_APK" ] && [ -f "$DEBUG_APK" ]; then
             cp "$DEBUG_APK" output-apks/ScreenPro-debug.apk
             echo "has_debug=true" >> $GITHUB_OUTPUT
@@ -94,7 +94,10 @@ jobs:
             echo "has_debug=false" >> $GITHUB_OUTPUT
           fi
 
-          RELEASE_APK=$(find android/app/build/outputs/apk/release -name "*.apk" 2>/dev/null | head -n 1)
+          RELEASE_APK=$(find app/build/outputs/apk/release -name "*.apk" 2>/dev/null | head -n 1)
+          if [ -z "$RELEASE_APK" ]; then
+            RELEASE_APK=$(find . -path "*/build/outputs/apk/release/*.apk" 2>/dev/null | head -n 1)
+          fi
           if [ -n "$RELEASE_APK" ] && [ -f "$RELEASE_APK" ]; then
             cp "$RELEASE_APK" output-apks/ScreenPro-release.apk
             echo "has_release=true" >> $GITHUB_OUTPUT

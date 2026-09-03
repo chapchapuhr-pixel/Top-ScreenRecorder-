@@ -39,7 +39,6 @@ jobs:
           gradle-version: '8.11.1'
 
       - name: Prepare Gradle Wrapper
-        working-directory: ./android
         run: |
           mkdir -p gradle/wrapper
           # Ensure gradle-wrapper.jar exists (download official jar if missing or empty)
@@ -55,7 +54,6 @@ jobs:
           chmod +x gradlew
 
       - name: Build Release & Debug APKs
-        working-directory: ./android
         run: |
           if [ -f "gradle/wrapper/gradle-wrapper.jar" ] && [ -x "./gradlew" ]; then
             ./gradlew assembleRelease assembleDebug --stacktrace --no-daemon
@@ -66,8 +64,14 @@ jobs:
       - name: Stage APK Outputs
         run: |
           mkdir -p dist
-          find android/app/build/outputs/apk/release -name "*.apk" -exec cp {} dist/ScreenPro-release.apk \;
-          find android/app/build/outputs/apk/debug -name "*.apk" -exec cp {} dist/ScreenPro-debug.apk \;
+          find app/build/outputs/apk/release -name "*.apk" -exec cp {} dist/ScreenPro-release.apk \; 2>/dev/null || true
+          find app/build/outputs/apk/debug -name "*.apk" -exec cp {} dist/ScreenPro-debug.apk \; 2>/dev/null || true
+          if [ ! -f "dist/ScreenPro-release.apk" ]; then
+            find . -path "*/build/outputs/apk/release/*.apk" -exec cp {} dist/ScreenPro-release.apk \; 2>/dev/null || true
+          fi
+          if [ ! -f "dist/ScreenPro-debug.apk" ]; then
+            find . -path "*/build/outputs/apk/debug/*.apk" -exec cp {} dist/ScreenPro-debug.apk \; 2>/dev/null || true
+          fi
           ls -lh dist/
 
       - name: Upload Artifacts to Action Run
