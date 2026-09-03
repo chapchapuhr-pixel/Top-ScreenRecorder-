@@ -1,0 +1,89 @@
+name: Release Android APK
+
+on:
+  release:
+    types: [ published ]
+  workflow_dispatch:
+    inputs:
+      version_tag:
+        description: 'Release tag (e.g. v1.0.0)'
+        required: true
+        default: 'v1.0.0'
+      release_title:
+        description: 'Release title'
+        required: false
+        default: 'ScreenPro Android Release'
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    name: Build & Publish Release APK
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '17'
+          cache: 'gradle'
+
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.11.1'
+
+      - name: Prepare Gradle Wrapper
+        working-directory: ./android
+        run: |
+          mkdir -p gradle/wrapper
+          # Ensure gradle-wrapper.jar exists (download official jar if missing or empty)
+          if [ ! -f "gradle/wrapper/gradle-wrapper.jar" ] || [ ! -s "gradle/wrapper/gradle-wrapper.jar" ]; then
+            echo "Fetching official Gradle 8.11.1 wrapper jar..."
+            curl -sLo gradle/wrapper/gradle-wrapper.jar https://raw.githubusercontent.com/gradle/gradle/v8.11.1/gradle/wrapper/gradle-wrapper.jar || true
+          fi
+          # Fallback to generating wrapper with Gradle CLI if needed
+          if [ ! -f "gradle/wrapper/gradle-wrapper.jar" ] || [ ! -s "gradle/wrapper/gradle-wrapper.jar" ]; then
+            echo "Regenerating wrapper with Gradle CLI..."
+            gradle wrapper --gradle-version 8.11.1 --distribution-type bin
+          fi
+          chmod +x gradlew
+
+      - name: Build Release & Debug APKs
+        working-directory: ./android
+        run: |
+          if [ -f "gradle/wrapper/gradle-wrapper.jar" ] && [ -x "./gradlew" ]; then
+            ./gradlew assembleRelease assembleDebug --stacktrace --no-daemon
+          else
+            gradle assembleRelease assembleDebug --stacktrace --no-daemon
+          fi
+
+      - name: Stage APK Outputs
+        run: |
+          mkdir -p dist
+          find android/app/build/outputs/apk/release -name "*.apk" -exec cp {} dist/ScreenPro-release.apk \;
+          find android/app/build/outputs/apk/debug -name "*.apk" -exec cp {} dist/ScreenPro-debug.apk \;
+          ls -lh dist/
+
+      - name: Upload Artifacts to Action Run
+        uses: actions/upload-artifact@v4
+        with:
+          name: screenpro-apks
+          path: dist/*.apk
+          retention-days: 60
+
+      - name: Attach APKs to GitHub Release
+        uses: softprops/action-gh-release@v2
+        if: github.event_name == 'release' || github.event_name == 'workflow_dispatch'
+        with:
+          tag_name: ${{ github.event.inputs.version_tag || github.ref_name }}
+          name: ${{ github.event.inputs.release_title || github.event.release.name }}
+          files: dist/*.apk
+          generate_release_notes: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

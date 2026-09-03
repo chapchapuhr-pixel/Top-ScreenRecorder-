@@ -1,0 +1,156 @@
+name: Build Android APK
+
+on:
+  push:
+    branches: [ main, master ]
+    tags: [ 'v*' ]
+  pull_request:
+    branches: [ main, master ]
+  workflow_dispatch:
+    inputs:
+      build_type:
+        description: 'Build variant to assemble'
+        required: true
+        default: 'both'
+        type: choice
+        options:
+          - 'debug'
+          - 'release'
+          - 'both'
+
+permissions:
+  contents: write
+
+jobs:
+  build-apk:
+    name: Build & Package Android APK
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '17'
+          cache: 'gradle'
+
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.11.1'
+
+      - name: Prepare Gradle Wrapper
+        working-directory: ./android
+        run: |
+          mkdir -p gradle/wrapper
+          # Ensure gradle-wrapper.jar exists (download official jar if missing or empty)
+          if [ ! -f "gradle/wrapper/gradle-wrapper.jar" ] || [ ! -s "gradle/wrapper/gradle-wrapper.jar" ]; then
+            echo "Fetching official Gradle 8.11.1 wrapper jar..."
+            curl -sLo gradle/wrapper/gradle-wrapper.jar https://raw.githubusercontent.com/gradle/gradle/v8.11.1/gradle/wrapper/gradle-wrapper.jar || true
+          fi
+          # Fallback to generating wrapper with Gradle CLI if needed
+          if [ ! -f "gradle/wrapper/gradle-wrapper.jar" ] || [ ! -s "gradle/wrapper/gradle-wrapper.jar" ]; then
+            echo "Regenerating wrapper with Gradle CLI..."
+            gradle wrapper --gradle-version 8.11.1 --distribution-type bin
+          fi
+          chmod +x gradlew
+
+      - name: Build Debug APK
+        if: ${{ github.event_name != 'workflow_dispatch' || github.event.inputs.build_type == 'debug' || github.event.inputs.build_type == 'both' }}
+        working-directory: ./android
+        run: |
+          if [ -f "gradle/wrapper/gradle-wrapper.jar" ] && [ -x "./gradlew" ]; then
+            ./gradlew assembleDebug --stacktrace --no-daemon
+          else
+            gradle assembleDebug --stacktrace --no-daemon
+          fi
+
+      - name: Build Release APK
+        if: ${{ github.event_name != 'workflow_dispatch' || github.event.inputs.build_type == 'release' || github.event.inputs.build_type == 'both' }}
+        working-directory: ./android
+        run: |
+          if [ -f "gradle/wrapper/gradle-wrapper.jar" ] && [ -x "./gradlew" ]; then
+            ./gradlew assembleRelease --stacktrace --no-daemon
+          else
+            gradle assembleRelease --stacktrace --no-daemon
+          fi
+
+      - name: Collect & Organize APK Artifacts
+        id: collect-apks
+        run: |
+          mkdir -p output-apks
+          
+          DEBUG_APK=$(find android/app/build/outputs/apk/debug -name "*.apk" 2>/dev/null | head -n 1)
+          if [ -n "$DEBUG_APK" ] && [ -f "$DEBUG_APK" ]; then
+            cp "$DEBUG_APK" output-apks/ScreenPro-debug.apk
+            echo "has_debug=true" >> $GITHUB_OUTPUT
+            echo "Copied debug APK: $DEBUG_APK"
+          else
+            echo "has_debug=false" >> $GITHUB_OUTPUT
+          fi
+
+          RELEASE_APK=$(find android/app/build/outputs/apk/release -name "*.apk" 2>/dev/null | head -n 1)
+          if [ -n "$RELEASE_APK" ] && [ -f "$RELEASE_APK" ]; then
+            cp "$RELEASE_APK" output-apks/ScreenPro-release.apk
+            echo "has_release=true" >> $GITHUB_OUTPUT
+            echo "Copied release APK: $RELEASE_APK"
+          else
+            echo "has_release=false" >> $GITHUB_OUTPUT
+          fi
+
+          ls -la output-apks/
+
+      - name: Generate Build Checksums & Summary
+        run: |
+          echo "### 📱 Android APK Build Summary" >> $GITHUB_STEP_SUMMARY
+          echo "| File | Size | SHA-256 Checksum |" >> $GITHUB_STEP_SUMMARY
+          echo "|---|---|---|" >> $GITHUB_STEP_SUMMARY
+          
+          cd output-apks
+          for f in *.apk; do
+            if [ -f "$f" ]; then
+              SIZE=$(ls -lh "$f" | awk '{print $5}')
+              SHA=$(sha256sum "$f" | awk '{print $1}')
+              echo "| **$f** | $SIZE | \`$SHA\` |" >> $GITHUB_STEP_SUMMARY
+            fi
+          done
+          cd ..
+          
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Installation Instructions:**" >> $GITHUB_STEP_SUMMARY
+          echo "\`\`\`bash" >> $GITHUB_STEP_SUMMARY
+          echo "# Install on connected Android device via ADB" >> $GITHUB_STEP_SUMMARY
+          echo "adb install -r output-apks/ScreenPro-debug.apk" >> $GITHUB_STEP_SUMMARY
+          echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
+
+      - name: Upload Debug APK Artifact
+        if: steps.collect-apks.outputs.has_debug == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: ScreenPro-debug-apk
+          path: output-apks/ScreenPro-debug.apk
+          retention-days: 30
+
+      - name: Upload Release APK Artifact
+        if: steps.collect-apks.outputs.has_release == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: ScreenPro-release-apk
+          path: output-apks/ScreenPro-release.apk
+          retention-days: 30
+
+      - name: Create GitHub Release (Tags Only)
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: output-apks/*.apk
+          generate_release_notes: true
+          draft: false
+          prerelease: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

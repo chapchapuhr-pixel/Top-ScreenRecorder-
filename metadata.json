@@ -1,0 +1,11 @@
+{
+  "name": "ScreenPro",
+  "description": "Professional Android screen recorder with high-performance video capture, audio mixing, face-camera bubble, live screen annotations, media library, and mobile video editor.",
+  "requestFramePermissions": [
+    "camera",
+    "microphone"
+  ],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}
