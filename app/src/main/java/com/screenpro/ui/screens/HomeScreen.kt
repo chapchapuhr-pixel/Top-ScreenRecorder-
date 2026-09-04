@@ -292,39 +292,50 @@ fun HomeScreen(
                             verticalAlignment = Alignment.CenterVertically
                         ) {
                             Row(verticalAlignment = Alignment.CenterVertically) {
-                                Icon(Icons.Default.Hd, contentDescription = null, tint = Color(0xFFFF4B2B), modifier = Modifier.size(18.dp))
-                                Spacer(modifier = Modifier.width(6.dp))
-                                Text(settings.resolution.uppercase(), color = Color.White, fontSize = 12.sp, fontWeight = FontWeight.Bold)
-                            }
-                            Text("•", color = Color.DarkGray)
-                            Row(verticalAlignment = Alignment.CenterVertically) {
-                                Icon(Icons.Default.Speed, contentDescription = null, tint = Color(0xFFFF4B2B), modifier = Modifier.size(18.dp))
-                                Spacer(modifier = Modifier.width(6.dp))
-                                Text("${settings.fps} FPS", color = Color.White, fontSize = 12.sp, fontWeight = FontWeight.Bold)
-                            }
-                            Text("•", color = Color.DarkGray)
-                            Row(verticalAlignment = Alignment.CenterVertically) {
-                                Icon(Icons.Default.Mic, contentDescription = null, tint = Color(0xFFFF4B2B), modifier = Modifier.size(18.dp))
-                                Spacer(modifier = Modifier.width(6.dp))
+                                Icon(Icons.Default.AspectRatio, contentDescription = null, tint = Color(0xFFFF4B2B), modifier = Modifier.size(16.dp))
+                                Spacer(modifier = Modifier.width(4.dp))
                                 Text(
-                                    when (settings.audioSource) {
-                                        "mic" -> "Mic Only"
-                                        "internal" -> "Internal"
-                                        "both" -> "Dual Audio"
-                                        else -> "Muted"
+                                    when (settings.videoSizePreset) {
+                                        "fullscreen" -> "Fullscreen"
+                                        "youtube" -> "16:9 YT"
+                                        "social" -> "9:16 Social"
+                                        "square" -> "1:1 Square"
+                                        "cinema" -> "21:9 Cinema"
+                                        "tablet" -> "4:3 Tablet"
+                                        else -> "Fullscreen"
                                     },
                                     color = Color.White,
-                                    fontSize = 12.sp,
+                                    fontSize = 11.sp,
                                     fontWeight = FontWeight.Bold
                                 )
                             }
-                            if (settings.cameraEnabled) {
-                                Text("•", color = Color.DarkGray)
-                                Row(verticalAlignment = Alignment.CenterVertically) {
-                                    Icon(Icons.Default.AccountCircle, contentDescription = null, tint = Color(0xFF00E676), modifier = Modifier.size(18.dp))
-                                    Spacer(modifier = Modifier.width(6.dp))
-                                    Text("Facecam", color = Color(0xFF00E676), fontSize = 12.sp, fontWeight = FontWeight.Bold)
-                                }
+                            Text("•", color = Color.DarkGray)
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Icon(Icons.Default.Hd, contentDescription = null, tint = Color(0xFFFF4B2B), modifier = Modifier.size(16.dp))
+                                Spacer(modifier = Modifier.width(4.dp))
+                                Text(settings.resolution.uppercase(), color = Color.White, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                            }
+                            Text("•", color = Color.DarkGray)
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Icon(Icons.Default.Speed, contentDescription = null, tint = Color(0xFFFF4B2B), modifier = Modifier.size(16.dp))
+                                Spacer(modifier = Modifier.width(4.dp))
+                                Text("${settings.fps} FPS", color = Color.White, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                            }
+                            Text("•", color = Color.DarkGray)
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Icon(Icons.Default.Mic, contentDescription = null, tint = Color(0xFFFF4B2B), modifier = Modifier.size(16.dp))
+                                Spacer(modifier = Modifier.width(4.dp))
+                                Text(
+                                    when (settings.audioSource) {
+                                        "mic" -> "Mic"
+                                        "internal" -> "Internal"
+                                        "both" -> "Dual"
+                                        else -> "Mute"
+                                    },
+                                    color = Color.White,
+                                    fontSize = 11.sp,
+                                    fontWeight = FontWeight.Bold
+                                )
                             }
                         }
                     }

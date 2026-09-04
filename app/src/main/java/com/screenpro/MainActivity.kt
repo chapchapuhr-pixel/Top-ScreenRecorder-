@@ -28,11 +28,15 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.core.content.ContextCompat
+import androidx.core.view.WindowCompat
+import androidx.core.view.WindowInsetsCompat
+import androidx.core.view.WindowInsetsControllerCompat
 import androidx.lifecycle.lifecycleScope
 import com.screenpro.data.SettingsManager
 import com.screenpro.data.model.MediaItem
 import com.screenpro.data.model.MediaType
 import com.screenpro.recording.RecordingController
+import com.screenpro.recording.VideoResolutionHelper
 import com.screenpro.service.FloatingBallService
 import com.screenpro.service.ScreenRecordService
 import com.screenpro.storage.MediaStoreRepository
@@ -82,19 +86,25 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    private val cameraPermissionLauncher = registerForActivityResult(
+        ActivityResultContracts.RequestPermission()
+    ) { granted ->
+        if (granted) {
+            settingsManager.updateSettings(settingsManager.settings.value.copy(cameraEnabled = true))
+            com.screenpro.recording.FaceCamController.setFaceCamEnabled(true)
+            Toast.makeText(this, "FaceCam activated! It will display during recording.", Toast.LENGTH_SHORT).show()
+        } else {
+            Toast.makeText(this, "Camera permission is needed for FaceCam", Toast.LENGTH_SHORT).show()
+        }
+    }
+
     private val projectionLauncher = registerForActivityResult(
         ActivityResultContracts.StartActivityForResult()
     ) { result ->
         if (result.resultCode == RESULT_OK && result.data != null) {
             val settings = settingsManager.settings.value
 
-            val (width, height) = when (settings.resolution) {
-                "480p" -> 480 to 854
-                "720p" -> 720 to 1280
-                "1440p" -> 1440 to 2560
-                "4k" -> 2160 to 3840
-                else -> 1080 to 1920
-            }
+            val (width, height) = VideoResolutionHelper.getVideoDimensions(applicationContext, settings)
 
             val bitrate = when (settings.bitrate) {
                 "low" -> 4_000_000
@@ -129,6 +139,9 @@ class MainActivity : ComponentActivity() {
             } else {
                 startService(serviceIntent)
             }
+
+            // Minimize app to capture user's active game/screen cleanly
+            moveTaskToBack(true)
         } else {
             Toast.makeText(this, "Screen capture permission was cancelled", Toast.LENGTH_SHORT).show()
         }
@@ -172,10 +185,21 @@ class MainActivity : ComponentActivity() {
         super.onResume()
         refreshMediaItems()
         val settings = settingsManager.settings.value
+        applyImmersiveMode(settings.hidePhoneControls)
         if (settings.floatingBallEnabled && Build.VERSION.SDK_INT >= Build.VERSION_CODES.M && Settings.canDrawOverlays(this)) {
             if (!FloatingBallService.isRunning) {
                 FloatingBallService.start(this)
             }
+        }
+    }
+
+    private fun applyImmersiveMode(hidePhoneControls: Boolean) {
+        val insetsController = WindowCompat.getInsetsController(window, window.decorView)
+        if (hidePhoneControls) {
+            insetsController.systemBarsBehavior = WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
+            insetsController.hide(WindowInsetsCompat.Type.systemBars())
+        } else {
+            insetsController.show(WindowInsetsCompat.Type.systemBars())
         }
     }
 
@@ -265,8 +289,19 @@ class MainActivity : ComponentActivity() {
                                     },
                                     onToggleFaceCamClick = {
                                         val newEnabled = !settings.cameraEnabled
-                                        settingsManager.updateSettings(settings.copy(cameraEnabled = newEnabled))
-                                        showFaceCam = newEnabled
+                                        if (newEnabled) {
+                                            if (androidx.core.content.ContextCompat.checkSelfPermission(this@MainActivity, Manifest.permission.CAMERA) != PackageManager.PERMISSION_GRANTED) {
+                                                cameraPermissionLauncher.launch(Manifest.permission.CAMERA)
+                                            } else {
+                                                settingsManager.updateSettings(settings.copy(cameraEnabled = true))
+                                                com.screenpro.recording.FaceCamController.setFaceCamEnabled(true)
+                                                showFaceCam = true
+                                            }
+                                        } else {
+                                            settingsManager.updateSettings(settings.copy(cameraEnabled = false))
+                                            com.screenpro.recording.FaceCamController.setFaceCamEnabled(false)
+                                            showFaceCam = false
+                                        }
                                     },
                                     onToggleFloatingBallClick = {
                                         toggleFloatingBallWithPermission(!settings.floatingBallEnabled)
@@ -452,6 +487,7 @@ class MainActivity : ComponentActivity() {
                                 durationSeconds = elapsed,
                                 isFaceCamActive = showFaceCam || settings.cameraEnabled,
                                 isDrawingActive = showDrawing,
+                                hideWhileRecording = settings.hideFloatingBallDuringRecording,
                                 onStartRecording = {
                                     if (settings.countdown > 0) {
                                         showCountdown = true

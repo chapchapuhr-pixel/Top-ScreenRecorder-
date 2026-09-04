@@ -127,59 +127,19 @@ class ScreenRecordingManager(private val context: Context) {
 
             val densityDpi = context.resources.displayMetrics.densityDpi
 
-            if (enableFaceCam) {
-                // Initialize Hardware Compositor
-                val comp = ScreenCameraCompositor(
-                    outputSurface = recorder.surface,
-                    videoWidth = encWidth,
-                    videoHeight = encHeight,
-                    targetFps = fps
-                ).apply {
-                    updateConfig(
-                        enabled = true,
-                        shape = cameraShape,
-                        posX = cameraPositionX,
-                        posY = cameraPositionY,
-                        scale = cameraScale,
-                        borderWidthDp = cameraBorderWidth,
-                        borderColorHex = cameraBorderColor,
-                        isMirrored = cameraMirrored
-                    )
-                    start()
-                }
-                compositor = comp
-
-                // Stream Screen into Compositor's screen input surface
-                virtualDisplay = projection.createVirtualDisplay(
-                    "ScreenProCaptureDisplay",
-                    encWidth,
-                    encHeight,
-                    densityDpi,
-                    DisplayManager.VIRTUAL_DISPLAY_FLAG_AUTO_MIRROR,
-                    comp.screenSurface,
-                    null,
-                    null
-                )
-
-                // Stream Camera into Compositor's camera input surface
-                comp.cameraSurface?.let { camSurf ->
-                    cameraCaptureManager = CameraCaptureManager(context).apply {
-                        startCapture(camSurf)
-                    }
-                }
-            } else {
-                // Direct recording path: zero overhead for standard screen capture
-                virtualDisplay = projection.createVirtualDisplay(
-                    "ScreenProCaptureDisplay",
-                    encWidth,
-                    encHeight,
-                    densityDpi,
-                    DisplayManager.VIRTUAL_DISPLAY_FLAG_AUTO_MIRROR,
-                    recorder.surface,
-                    null,
-                    null
-                )
-            }
+            // Capture screen display directly into recorder. The on-screen FaceCam floating overlay
+            // with live CameraX preview is rendered in the window manager and captured with perfect
+            // 60fps fidelity, interactive drag movement, and real-time show/hide support.
+            virtualDisplay = projection.createVirtualDisplay(
+                "ScreenProCaptureDisplay",
+                encWidth,
+                encHeight,
+                densityDpi,
+                DisplayManager.VIRTUAL_DISPLAY_FLAG_AUTO_MIRROR,
+                recorder.surface,
+                null,
+                null
+            )
 
             recorder.start()
             this.mediaRecorder = recorder

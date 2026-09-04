@@ -61,7 +61,7 @@
         <service
             android:name=".service.FloatingBallService"
             android:exported="false"
-            android:foregroundServiceType="specialUse">
+            android:foregroundServiceType="specialUse|camera">
             <property
                 android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
                 android:value="Floating assistant tool for quick screen recording controls and tools" />

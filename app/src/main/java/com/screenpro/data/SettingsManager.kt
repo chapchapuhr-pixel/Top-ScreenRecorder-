@@ -35,6 +35,10 @@ class SettingsManager(context: Context) {
             cameraBorderColor = prefs.getString("cameraBorderColor", "#FF4B2B") ?: "#FF4B2B",
             cameraMirrored = prefs.getBoolean("cameraMirrored", true),
             floatingBallEnabled = prefs.getBoolean("floatingBallEnabled", true),
+            hideFloatingBallDuringRecording = prefs.getBoolean("hideFloatingBallDuringRecording", true),
+            hidePhoneControls = prefs.getBoolean("hidePhoneControls", true),
+            shakeToStop = prefs.getBoolean("shakeToStop", true),
+            videoSizePreset = prefs.getString("videoSizePreset", "fullscreen") ?: "fullscreen",
             filenamePrefix = prefs.getString("filenamePrefix", "ScreenPro_") ?: "ScreenPro_",
             preserveSource = prefs.getBoolean("preserveSource", true),
             themeMode = prefs.getString("themeMode", "dark") ?: "dark"
@@ -62,6 +66,10 @@ class SettingsManager(context: Context) {
             putString("cameraBorderColor", newSettings.cameraBorderColor)
             putBoolean("cameraMirrored", newSettings.cameraMirrored)
             putBoolean("floatingBallEnabled", newSettings.floatingBallEnabled)
+            putBoolean("hideFloatingBallDuringRecording", newSettings.hideFloatingBallDuringRecording)
+            putBoolean("hidePhoneControls", newSettings.hidePhoneControls)
+            putBoolean("shakeToStop", newSettings.shakeToStop)
+            putString("videoSizePreset", newSettings.videoSizePreset)
             putString("filenamePrefix", newSettings.filenamePrefix)
             putBoolean("preserveSource", newSettings.preserveSource)
             putString("themeMode", newSettings.themeMode)

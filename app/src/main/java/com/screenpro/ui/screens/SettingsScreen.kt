@@ -105,6 +105,48 @@ fun SettingsScreen(
             ) {
                 when (activeSubtab) {
                     "recording" -> {
+                        SettingsCard(title = "Video Size & Aspect Ratio") {
+                            Text(
+                                "Choose recording dimensions. Fullscreen covers the entire screen without borders, or choose YouTube/Social presets.",
+                                color = Color.Gray,
+                                fontSize = 12.sp
+                            )
+                            Spacer(modifier = Modifier.height(4.dp))
+                            val presets = listOf(
+                                "fullscreen" to ("Fullscreen (No Borders)" to "Matches full phone screen edge-to-edge"),
+                                "youtube" to ("YouTube 16:9 (Landscape)" to "Standard widescreen video for YouTube uploads"),
+                                "social" to ("Social 9:16 (TikTok/Shorts/Reels)" to "Vertical format for Reels, TikTok and Shorts"),
+                                "square" to ("Square 1:1 (Instagram/Feed)" to "Square aspect ratio for posts and feeds"),
+                                "cinema" to ("Cinema 21:9 (Ultrawide)" to "Ultrawide cinematic video format"),
+                                "tablet" to ("Tablet / Classic 4:3" to "Standard 4:3 presentation ratio")
+                            )
+                            presets.forEach { (presetKey, pair) ->
+                                val (title, desc) = pair
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .clickable {
+                                            settingsManager.updateSettings(settings.copy(videoSizePreset = presetKey))
+                                        }
+                                        .padding(vertical = 6.dp),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    RadioButton(
+                                        selected = settings.videoSizePreset == presetKey,
+                                        onClick = {
+                                            settingsManager.updateSettings(settings.copy(videoSizePreset = presetKey))
+                                        },
+                                        colors = RadioButtonDefaults.colors(selectedColor = Color(0xFFFF4B2B))
+                                    )
+                                    Spacer(modifier = Modifier.width(8.dp))
+                                    Column {
+                                        Text(title, color = Color.White, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+                                        Text(desc, color = Color.Gray, fontSize = 11.sp)
+                                    }
+                                }
+                            }
+                        }
+
                         SettingsCard(title = "Video Resolution") {
                             val resolutions = listOf("480p", "720p", "1080p", "1440p", "4k")
                             Row(
@@ -219,6 +261,69 @@ fun SettingsScreen(
                                     checked = settings.floatingBallEnabled,
                                     onCheckedChange = { enabled ->
                                         onToggleFloatingBall(enabled)
+                                    },
+                                    colors = SwitchDefaults.colors(checkedThumbColor = Color.White, checkedTrackColor = Color(0xFFFF4B2B))
+                                )
+                            }
+                        }
+
+                        SettingsCard(title = "Pro Clean Recording") {
+                            // 1. Hide floating ball during recording
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Column(modifier = Modifier.weight(1f)) {
+                                    Text("Hide Floating Ball During Recording", color = Color.White, fontWeight = FontWeight.SemiBold)
+                                    Text("Hides floating buttons and controllers while recording so they never appear in your video", color = Color.Gray, fontSize = 12.sp)
+                                }
+                                Switch(
+                                    checked = settings.hideFloatingBallDuringRecording,
+                                    onCheckedChange = {
+                                        settingsManager.updateSettings(settings.copy(hideFloatingBallDuringRecording = it))
+                                    },
+                                    colors = SwitchDefaults.colors(checkedThumbColor = Color.White, checkedTrackColor = Color(0xFFFF4B2B))
+                                )
+                            }
+
+                            Divider(color = Color(0xFF262626), modifier = Modifier.padding(vertical = 8.dp))
+
+                            // 2. Hide Phone Controls & Immersive Fullscreen
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Column(modifier = Modifier.weight(1f)) {
+                                    Text("Hide Phone Controls (No Borders)", color = Color.White, fontWeight = FontWeight.SemiBold)
+                                    Text("Hides system status bar and navigation bar so video covers fullscreen cleanly", color = Color.Gray, fontSize = 12.sp)
+                                }
+                                Switch(
+                                    checked = settings.hidePhoneControls,
+                                    onCheckedChange = {
+                                        settingsManager.updateSettings(settings.copy(hidePhoneControls = it))
+                                    },
+                                    colors = SwitchDefaults.colors(checkedThumbColor = Color.White, checkedTrackColor = Color(0xFFFF4B2B))
+                                )
+                            }
+
+                            Divider(color = Color(0xFF262626), modifier = Modifier.padding(vertical = 8.dp))
+
+                            // 3. Shake Phone to Stop
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Column(modifier = Modifier.weight(1f)) {
+                                    Text("Shake Phone to Stop Recording", color = Color.White, fontWeight = FontWeight.SemiBold)
+                                    Text("Shake device to stop recording without touching screen or showing buttons", color = Color.Gray, fontSize = 12.sp)
+                                }
+                                Switch(
+                                    checked = settings.shakeToStop,
+                                    onCheckedChange = {
+                                        settingsManager.updateSettings(settings.copy(shakeToStop = it))
                                     },
                                     colors = SwitchDefaults.colors(checkedThumbColor = Color.White, checkedTrackColor = Color(0xFFFF4B2B))
                                 )

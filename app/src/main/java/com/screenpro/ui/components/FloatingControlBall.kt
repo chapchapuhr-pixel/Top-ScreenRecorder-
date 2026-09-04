@@ -51,6 +51,7 @@ fun FloatingControlBall(
     durationSeconds: Long,
     isFaceCamActive: Boolean,
     isDrawingActive: Boolean,
+    hideWhileRecording: Boolean = true,
     onStartRecording: () -> Unit,
     onStopRecording: () -> Unit,
     onPauseRecording: () -> Unit,
@@ -392,7 +393,9 @@ fun FloatingControlBall(
         }
 
         // Floating Ball (The Draggable Bubble itself) - hidden when expanded so only Ready to Record panel is visible
-        if (!isExpanded) {
+        // Also hidden during active recording if hideWhileRecording is set
+        val shouldHideBall = isRecording && !isPaused && hideWhileRecording
+        if (!isExpanded && !shouldHideBall) {
             Box(
                 modifier = Modifier
                     .offset { IntOffset(offsetX.roundToInt(), offsetY.roundToInt()) }

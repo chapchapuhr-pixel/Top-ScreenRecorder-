@@ -9,6 +9,10 @@ import android.app.Service
 import android.content.Context
 import android.content.Intent
 import android.content.pm.ServiceInfo
+import android.hardware.Sensor
+import android.hardware.SensorEvent
+import android.hardware.SensorEventListener
+import android.hardware.SensorManager
 import android.media.projection.MediaProjectionManager
 import android.os.Binder
 import android.os.Build
@@ -16,6 +20,7 @@ import android.os.IBinder
 import androidx.core.app.NotificationCompat
 import com.screenpro.MainActivity
 import com.screenpro.R
+import com.screenpro.data.SettingsManager
 import com.screenpro.recording.RecordingController
 import com.screenpro.recording.ScreenRecordingManager
 import kotlinx.coroutines.CoroutineScope
@@ -47,6 +52,9 @@ class ScreenRecordService : Service() {
         const val ACTION_STOP = "com.screenpro.ACTION_STOP"
         const val ACTION_SCREENSHOT = "com.screenpro.ACTION_SCREENSHOT"
         const val ACTION_UPDATE_FACECAM = "com.screenpro.ACTION_UPDATE_FACECAM"
+        const val ACTION_TOGGLE_FACECAM = "com.screenpro.ACTION_TOGGLE_FACECAM"
+        const val ACTION_HIDE_FACECAM = "com.screenpro.ACTION_HIDE_FACECAM"
+        const val ACTION_SHOW_FACECAM = "com.screenpro.ACTION_SHOW_FACECAM"
     }
 
     inner class LocalBinder : Binder() {
@@ -112,6 +120,18 @@ class ScreenRecordService : Service() {
                 if (posX >= 0f && posY >= 0f) {
                     recordingManager.updateFaceCamPosition(posX, posY)
                 }
+            }
+            ACTION_TOGGLE_FACECAM -> {
+                com.screenpro.recording.FaceCamController.toggleHideShow()
+                updateNotification(RecordingController.isPaused.value, RecordingController.elapsedSeconds.value)
+            }
+            ACTION_HIDE_FACECAM -> {
+                com.screenpro.recording.FaceCamController.hideFaceCam()
+                updateNotification(RecordingController.isPaused.value, RecordingController.elapsedSeconds.value)
+            }
+            ACTION_SHOW_FACECAM -> {
+                com.screenpro.recording.FaceCamController.showFaceCam()
+                updateNotification(RecordingController.isPaused.value, RecordingController.elapsedSeconds.value)
             }
             ACTION_PAUSE -> {
                 recordingManager.pauseRecording()
@@ -186,9 +206,69 @@ class ScreenRecordService : Service() {
                 updateNotification(RecordingController.isPaused.value, sec)
             }
         }
+
+        serviceScope.launch {
+            com.screenpro.recording.FaceCamController.isFaceCamHidden.collectLatest {
+                updateNotification(RecordingController.isPaused.value, RecordingController.elapsedSeconds.value)
+            }
+        }
+
+        serviceScope.launch {
+            com.screenpro.recording.FaceCamController.isFaceCamEnabled.collectLatest {
+                updateNotification(RecordingController.isPaused.value, RecordingController.elapsedSeconds.value)
+            }
+        }
+
+        val settings = SettingsManager(applicationContext).settings.value
+        if (settings.shakeToStop) {
+            setupShakeDetector()
+        }
+    }
+
+    private var sensorManager: SensorManager? = null
+    private var accelerometer: Sensor? = null
+    private var shakeListener: SensorEventListener? = null
+    private var lastShakeTimestamp = 0L
+
+    private fun setupShakeDetector() {
+        try {
+            sensorManager = getSystemService(Context.SENSOR_SERVICE) as? SensorManager
+            accelerometer = sensorManager?.getDefaultSensor(Sensor.TYPE_ACCELEROMETER)
+            shakeListener = object : SensorEventListener {
+                override fun onSensorChanged(event: SensorEvent?) {
+                    if (event == null) return
+                    val x = event.values[0] / SensorManager.GRAVITY_EARTH
+                    val y = event.values[1] / SensorManager.GRAVITY_EARTH
+                    val z = event.values[2] / SensorManager.GRAVITY_EARTH
+                    val gForce = kotlin.math.sqrt((x * x + y * y + z * z).toDouble()).toFloat()
+                    if (gForce > 2.8f) {
+                        val now = System.currentTimeMillis()
+                        if (now - lastShakeTimestamp > 2500) {
+                            lastShakeTimestamp = now
+                            stopRecordingForeground()
+                        }
+                    }
+                }
+                override fun onAccuracyChanged(sensor: Sensor?, accuracy: Int) {}
+            }
+            accelerometer?.let {
+                sensorManager?.registerListener(shakeListener, it, SensorManager.SENSOR_DELAY_UI)
+            }
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
+    }
+
+    private fun tearDownShakeDetector() {
+        shakeListener?.let {
+            sensorManager?.unregisterListener(it)
+        }
+        shakeListener = null
+        sensorManager = null
     }
 
     private fun stopRecordingForeground() {
+        tearDownShakeDetector()
         recordingManager.stopRecording { success, uri ->
             RecordingController.onRecordingStopped()
             stopForeground(STOP_FOREGROUND_REMOVE)
@@ -227,13 +307,22 @@ class ScreenRecordService : Service() {
             PendingIntent.getService(this, 2, it, PendingIntent.FLAG_IMMUTABLE)
         }
 
+        val screenshotIntent = Intent(this, ScreenRecordService::class.java).apply {
+            action = ACTION_SCREENSHOT
+        }.let {
+            PendingIntent.getService(this, 3, it, PendingIntent.FLAG_IMMUTABLE)
+        }
+
         val mins = elapsedSec / 60
         val secs = elapsedSec % 60
         val timeStr = String.format("%02d:%02d", mins, secs)
 
-        return NotificationCompat.Builder(this, CHANNEL_ID)
-            .setContentTitle("ScreenPro Recording")
-            .setContentText(if (isPaused) "Recording Paused • $timeStr" else "Recording in Progress • $timeStr")
+        val isFaceCamActive = com.screenpro.recording.FaceCamController.isFaceCamEnabled.value
+        val isFaceCamHidden = com.screenpro.recording.FaceCamController.isFaceCamHidden.value
+
+        val builder = NotificationCompat.Builder(this, CHANNEL_ID)
+            .setContentTitle("ScreenPro Pro Recording")
+            .setContentText(if (isPaused) "Paused • $timeStr (Shake phone to stop)" else "Recording • $timeStr (Shake phone to stop)")
             .setSmallIcon(R.drawable.ic_notification_record)
             .setContentIntent(openIntent)
             .setOngoing(true)
@@ -243,7 +332,23 @@ class ScreenRecordService : Service() {
                 pauseResumeIntent
             )
             .addAction(R.drawable.ic_stop, "Stop", stopIntent)
-            .build()
+
+        if (isFaceCamActive) {
+            val faceCamToggleIntent = Intent(this, ScreenRecordService::class.java).apply {
+                action = ACTION_TOGGLE_FACECAM
+            }.let {
+                PendingIntent.getService(this, 4, it, PendingIntent.FLAG_IMMUTABLE)
+            }
+            builder.addAction(
+                R.drawable.ic_camera,
+                if (isFaceCamHidden) "Show FaceCam" else "Hide FaceCam",
+                faceCamToggleIntent
+            )
+        } else {
+            builder.addAction(R.drawable.ic_camera, "Snapshot", screenshotIntent)
+        }
+
+        return builder.build()
     }
 
     private fun updateNotification(isPaused: Boolean, elapsedSec: Long) {

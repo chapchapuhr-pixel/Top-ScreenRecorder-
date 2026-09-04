@@ -20,6 +20,7 @@ import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.result.contract.ActivityResultContracts
 import com.screenpro.data.SettingsManager
+import com.screenpro.recording.VideoResolutionHelper
 import com.screenpro.storage.MediaStoreRepository
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -35,6 +36,7 @@ class CaptureLauncherActivity : ComponentActivity() {
     companion object {
         const val ACTION_START_RECORD = "com.screenpro.ACTION_START_RECORD"
         const val ACTION_CAPTURE_SCREENSHOT = "com.screenpro.ACTION_CAPTURE_SCREENSHOT"
+        const val ACTION_REQUEST_CAMERA_PERMISSION = "com.screenpro.ACTION_REQUEST_CAMERA_PERMISSION"
 
         fun startRecord(context: Context) {
             val intent = Intent(context, CaptureLauncherActivity::class.java).apply {
@@ -51,6 +53,35 @@ class CaptureLauncherActivity : ComponentActivity() {
             }
             context.startActivity(intent)
         }
+
+        fun requestCameraPermission(context: Context) {
+            val intent = Intent(context, CaptureLauncherActivity::class.java).apply {
+                action = ACTION_REQUEST_CAMERA_PERMISSION
+                flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
+            }
+            context.startActivity(intent)
+        }
+    }
+
+    private val cameraPermissionLauncher = registerForActivityResult(
+        ActivityResultContracts.RequestPermission()
+    ) { isGranted ->
+        if (isGranted) {
+            val settingsManager = SettingsManager(applicationContext)
+            val current = settingsManager.settings.value
+            settingsManager.updateSettings(current.copy(cameraEnabled = true))
+            com.screenpro.recording.FaceCamController.setFaceCamEnabled(true)
+            Toast.makeText(this, "Camera permission granted. FaceCam activated!", Toast.LENGTH_SHORT).show()
+            val floatingIntent = Intent(this, FloatingBallService::class.java)
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                startForegroundService(floatingIntent)
+            } else {
+                startService(floatingIntent)
+            }
+        } else {
+            Toast.makeText(this, "Camera permission is required to show FaceCam", Toast.LENGTH_SHORT).show()
+        }
+        finishWithNoAnimation()
     }
 
     private val projectionLauncher = registerForActivityResult(
@@ -80,6 +111,11 @@ class CaptureLauncherActivity : ComponentActivity() {
         window.setBackgroundDrawableResource(android.R.color.transparent)
         window.addFlags(WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL)
 
+        if (intent?.action == ACTION_REQUEST_CAMERA_PERMISSION) {
+            cameraPermissionLauncher.launch(android.Manifest.permission.CAMERA)
+            return
+        }
+
         val mediaProjectionManager = getSystemService(Context.MEDIA_PROJECTION_SERVICE) as? MediaProjectionManager
         if (mediaProjectionManager == null) {
             Toast.makeText(this, "Media projection not supported on this device", Toast.LENGTH_SHORT).show()
@@ -99,13 +135,7 @@ class CaptureLauncherActivity : ComponentActivity() {
         val settingsManager = SettingsManager(applicationContext)
         val settings = settingsManager.settings.value
 
-        val (width, height) = when (settings.resolution) {
-            "480p" -> 480 to 854
-            "720p" -> 720 to 1280
-            "1440p" -> 1440 to 2560
-            "4k" -> 2160 to 3840
-            else -> 1080 to 1920
-        }
+        val (width, height) = VideoResolutionHelper.getVideoDimensions(applicationContext, settings)
 
         val bitrate = when (settings.bitrate) {
             "low" -> 4_000_000
@@ -133,6 +163,16 @@ class CaptureLauncherActivity : ComponentActivity() {
             putExtra("CAMERA_BORDER_WIDTH", settings.cameraBorderWidth)
             putExtra("CAMERA_BORDER_COLOR", settings.cameraBorderColor)
             putExtra("CAMERA_MIRRORED", settings.cameraMirrored)
+        }
+
+        if (settings.cameraEnabled) {
+            com.screenpro.recording.FaceCamController.setFaceCamEnabled(true)
+            val floatingIntent = Intent(this, FloatingBallService::class.java)
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                startForegroundService(floatingIntent)
+            } else {
+                startService(floatingIntent)
+            }
         }
 
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {

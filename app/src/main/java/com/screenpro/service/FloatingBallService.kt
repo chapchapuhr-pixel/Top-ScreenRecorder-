@@ -53,11 +53,18 @@ import androidx.compose.ui.unit.sp
 import androidx.core.app.NotificationCompat
 import androidx.lifecycle.*
 import androidx.savedstate.*
+import androidx.core.content.ContextCompat
+import android.Manifest
+import android.content.pm.PackageManager
 import com.screenpro.MainActivity
 import com.screenpro.R
 import com.screenpro.data.SettingsManager
+import com.screenpro.recording.FaceCamController
 import com.screenpro.recording.RecordingController
+import com.screenpro.ui.components.FloatingFaceCamOverlay
 import kotlinx.coroutines.*
+import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.flow.combine
 import kotlin.math.roundToInt
 
 /**
@@ -70,6 +77,13 @@ class FloatingBallService : Service() {
     private lateinit var settingsManager: SettingsManager
     private var overlayComposeView: ComposeView? = null
     private var windowLayoutParams: WindowManager.LayoutParams? = null
+    private var isCurrentlyHiddenForRecording = false
+
+    // System-wide Floating FaceCam overlay views
+    private var faceCamComposeView: ComposeView? = null
+    private var faceCamLayoutParams: WindowManager.LayoutParams? = null
+    private var faceCamPosX = 800
+    private var faceCamPosY = 200
 
     private val serviceScope = CoroutineScope(Dispatchers.Main + Job())
     private var lifecycleOwner: ServiceLifecycleOwner? = null
@@ -127,8 +141,31 @@ class FloatingBallService : Service() {
         createNotificationChannel()
         startForeground(NOTIFICATION_ID, buildNotification())
 
+        lifecycleOwner = ServiceLifecycleOwner().apply { onCreate() }
         calculateScreenSize()
         initOverlayWindow()
+
+        serviceScope.launch {
+            settingsManager.settings.collectLatest { settings ->
+                syncFaceCamOverlay(settings)
+            }
+        }
+
+        serviceScope.launch {
+            FaceCamController.isFaceCamEnabled.collectLatest { enabled ->
+                val current = settingsManager.settings.value
+                if (current.cameraEnabled != enabled) {
+                    settingsManager.updateSettings(current.copy(cameraEnabled = enabled))
+                }
+                syncFaceCamOverlay(settingsManager.settings.value)
+            }
+        }
+
+        serviceScope.launch {
+            FaceCamController.isFaceCamHidden.collectLatest {
+                syncFaceCamOverlay(settingsManager.settings.value)
+            }
+        }
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
@@ -186,8 +223,6 @@ class FloatingBallService : Service() {
         }
         windowLayoutParams = params
 
-        lifecycleOwner = ServiceLifecycleOwner().apply { onCreate() }
-
         val composeView = ComposeView(this).apply {
             setViewCompositionStrategy(ViewCompositionStrategy.DisposeOnDetachedFromWindow)
             setViewTreeLifecycleOwner(lifecycleOwner)
@@ -205,6 +240,7 @@ class FloatingBallService : Service() {
                     isExpanded = expanded,
                     isRecording = isRecording,
                     isPaused = isPaused,
+                    hideWhileRecording = settings.hideFloatingBallDuringRecording,
                     durationSeconds = elapsedSeconds,
                     isFaceCamActive = settings.cameraEnabled,
                     ballSizePx = ballSizePx,
@@ -274,12 +310,24 @@ class FloatingBallService : Service() {
                     },
                     onToggleFaceCam = {
                         val newCamState = !settings.cameraEnabled
-                        settingsManager.updateSettings(settings.copy(cameraEnabled = newCamState))
-                        if (RecordingController.isRecording.value) {
-                            val updateIntent = Intent(applicationContext, ScreenRecordService::class.java).apply {
-                                action = ScreenRecordService.ACTION_UPDATE_FACECAM
+                        if (newCamState) {
+                            val isPermitted = ContextCompat.checkSelfPermission(
+                                applicationContext,
+                                Manifest.permission.CAMERA
+                            ) == PackageManager.PERMISSION_GRANTED
+
+                            if (!isPermitted) {
+                                isMenuExpanded.value = false
+                                updateWindowForMenuState(false)
+                                CaptureLauncherActivity.requestCameraPermission(applicationContext)
+                            } else {
+                                settingsManager.updateSettings(settings.copy(cameraEnabled = true))
+                                FaceCamController.setFaceCamEnabled(true)
+                                android.widget.Toast.makeText(applicationContext, "FaceCam activated", android.widget.Toast.LENGTH_SHORT).show()
                             }
-                            startService(updateIntent)
+                        } else {
+                            settingsManager.updateSettings(settings.copy(cameraEnabled = false))
+                            FaceCamController.setFaceCamEnabled(false)
                         }
                     },
                     onOpenHome = {
@@ -310,6 +358,24 @@ class FloatingBallService : Service() {
         } catch (e: Exception) {
             e.printStackTrace()
             stopSelf()
+            return
+        }
+
+        // Monitor recording state: if recording is active and hideFloatingBallDuringRecording is enabled,
+        // hide the entire overlay window from the screen so it is completely excluded from video capture.
+        serviceScope.launch {
+            combine(
+                RecordingController.isRecording,
+                RecordingController.isPaused,
+                settingsManager.settings
+            ) { recording, paused, settings ->
+                recording && !paused && settings.hideFloatingBallDuringRecording
+            }.collectLatest { shouldHide ->
+                withContext(Dispatchers.Main) {
+                    isCurrentlyHiddenForRecording = shouldHide
+                    updateWindowForMenuState(isMenuExpanded.value)
+                }
+            }
         }
     }
 
@@ -317,20 +383,30 @@ class FloatingBallService : Service() {
         val view = overlayComposeView ?: return
         val params = windowLayoutParams ?: return
 
-        if (expanded) {
+        if (isCurrentlyHiddenForRecording) {
+            view.visibility = View.GONE
+            params.width = 0
+            params.height = 0
+        } else if (expanded) {
+            view.visibility = View.VISIBLE
             // Expand window to fullscreen so backdrop and menu render properly over everything
             params.width = WindowManager.LayoutParams.MATCH_PARENT
             params.height = WindowManager.LayoutParams.MATCH_PARENT
             params.x = 0
             params.y = 0
         } else {
+            view.visibility = View.VISIBLE
             // Shrink window to just the small ball so background apps get touches uninterrupted
             params.width = ballSizePx
             params.height = ballSizePx
             params.x = ballPosX
             params.y = ballPosY
         }
-        windowManager.updateViewLayout(view, params)
+        try {
+            windowManager.updateViewLayout(view, params)
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
     }
 
     private fun createNotificationChannel() {
@@ -380,10 +456,185 @@ class FloatingBallService : Service() {
             .build()
     }
 
+    private fun getFaceCamDimensions(settings: com.screenpro.data.model.AppSettings, isCollapsed: Boolean): Pair<Int, Int> {
+        val density = resources.displayMetrics.density
+        if (isCollapsed) {
+            return (110 * density).roundToInt() to (40 * density).roundToInt()
+        }
+        return when (settings.cameraSize) {
+            "small" -> when (settings.cameraShape) {
+                "rectangle" -> (130 * density).roundToInt() to (98 * density).roundToInt()
+                else -> (110 * density).roundToInt() to (110 * density).roundToInt()
+            }
+            "large" -> when (settings.cameraShape) {
+                "rectangle" -> (200 * density).roundToInt() to (150 * density).roundToInt()
+                else -> (175 * density).roundToInt() to (175 * density).roundToInt()
+            }
+            else -> when (settings.cameraShape) { // medium
+                "rectangle" -> (165 * density).roundToInt() to (124 * density).roundToInt()
+                else -> (140 * density).roundToInt() to (140 * density).roundToInt()
+            }
+        }
+    }
+
+    private fun syncFaceCamOverlay(settings: com.screenpro.data.model.AppSettings) {
+        if (!Settings.canDrawOverlays(this)) return
+
+        val isCameraPermitted = ContextCompat.checkSelfPermission(
+            this,
+            Manifest.permission.CAMERA
+        ) == PackageManager.PERMISSION_GRANTED
+
+        val shouldShowFaceCam = settings.cameraEnabled && isCameraPermitted
+
+        if (shouldShowFaceCam) {
+            if (faceCamComposeView == null) {
+                createFaceCamOverlay(settings)
+            } else {
+                updateFaceCamLayoutDimensions(settings)
+            }
+        } else {
+            removeFaceCamOverlay()
+        }
+    }
+
+    private fun createFaceCamOverlay(settings: com.screenpro.data.model.AppSettings) {
+        if (faceCamComposeView != null) return
+
+        val isCollapsed = FaceCamController.isFaceCamHidden.value
+        val (widthPx, heightPx) = getFaceCamDimensions(settings, isCollapsed)
+
+        val layoutFlag = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY
+        } else {
+            @Suppress("DEPRECATION")
+            WindowManager.LayoutParams.TYPE_PHONE
+        }
+
+        if (faceCamPosX == 800 && faceCamPosY == 200) {
+            faceCamPosX = (settings.cameraPositionX * (screenWidth - widthPx)).roundToInt().coerceIn(0, (screenWidth - widthPx).coerceAtLeast(0))
+            faceCamPosY = (settings.cameraPositionY * (screenHeight - heightPx)).roundToInt().coerceIn(0, (screenHeight - heightPx).coerceAtLeast(0))
+        }
+
+        val params = WindowManager.LayoutParams(
+            widthPx,
+            heightPx,
+            layoutFlag,
+            WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
+                    WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS,
+            PixelFormat.TRANSLUCENT
+        ).apply {
+            gravity = Gravity.TOP or Gravity.START
+            x = faceCamPosX
+            y = faceCamPosY
+        }
+        faceCamLayoutParams = params
+
+        val owner = lifecycleOwner ?: return
+
+        val view = ComposeView(this).apply {
+            setViewCompositionStrategy(ViewCompositionStrategy.DisposeOnDetachedFromWindow)
+            setViewTreeLifecycleOwner(owner)
+            setViewTreeViewModelStoreOwner(owner)
+            setViewTreeSavedStateRegistryOwner(owner)
+
+            setContent {
+                val currentSettings by settingsManager.settings.collectAsState()
+                val isFaceCamHidden by FaceCamController.isFaceCamHidden.collectAsState()
+                val isFrontCam by FaceCamController.isFrontCamera.collectAsState()
+
+                FloatingFaceCamOverlay(
+                    isCollapsed = isFaceCamHidden,
+                    shapeType = currentSettings.cameraShape,
+                    sizeType = currentSettings.cameraSize,
+                    borderWidthDp = currentSettings.cameraBorderWidth,
+                    borderColorHex = currentSettings.cameraBorderColor,
+                    isMirrored = currentSettings.cameraMirrored,
+                    isFrontCamera = isFrontCam,
+                    onDrag = { dx, dy ->
+                        val (curW, curH) = getFaceCamDimensions(currentSettings, isFaceCamHidden)
+                        faceCamPosX = (faceCamPosX + dx).roundToInt().coerceIn(0, (screenWidth - curW).coerceAtLeast(0))
+                        faceCamPosY = (faceCamPosY + dy).roundToInt().coerceIn(40, (screenHeight - curH - 40).coerceAtLeast(40))
+                        faceCamLayoutParams?.let { lp ->
+                            lp.x = faceCamPosX
+                            lp.y = faceCamPosY
+                            try {
+                                windowManager.updateViewLayout(this@apply, lp)
+                            } catch (e: Exception) {
+                                e.printStackTrace()
+                            }
+                        }
+                        val pctX = (faceCamPosX.toFloat() / (screenWidth - curW).coerceAtLeast(1)).coerceIn(0f, 1f)
+                        val pctY = (faceCamPosY.toFloat() / (screenHeight - curH).coerceAtLeast(1)).coerceIn(0f, 1f)
+                        settingsManager.updateSettings(currentSettings.copy(cameraPositionX = pctX, cameraPositionY = pctY))
+                    },
+                    onToggleCollapse = { collapse ->
+                        if (collapse) {
+                            FaceCamController.hideFaceCam()
+                        } else {
+                            FaceCamController.showFaceCam()
+                        }
+                    },
+                    onSwitchLens = { isFront ->
+                        FaceCamController.setCameraLens(isFront)
+                    },
+                    onShapeChanged = { shape ->
+                        settingsManager.updateSettings(currentSettings.copy(cameraShape = shape))
+                    },
+                    onSizeChanged = { size, scale ->
+                        settingsManager.updateSettings(currentSettings.copy(cameraSize = size, cameraScale = scale))
+                    },
+                    onMirrorToggled = { mirrored ->
+                        settingsManager.updateSettings(currentSettings.copy(cameraMirrored = mirrored))
+                    },
+                    onClose = {
+                        FaceCamController.setFaceCamEnabled(false)
+                        settingsManager.updateSettings(currentSettings.copy(cameraEnabled = false))
+                    }
+                )
+            }
+        }
+
+        try {
+            windowManager.addView(view, params)
+            faceCamComposeView = view
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
+    }
+
+    private fun updateFaceCamLayoutDimensions(settings: com.screenpro.data.model.AppSettings) {
+        val view = faceCamComposeView ?: return
+        val params = faceCamLayoutParams ?: return
+        val isCollapsed = FaceCamController.isFaceCamHidden.value
+        val (widthPx, heightPx) = getFaceCamDimensions(settings, isCollapsed)
+
+        params.width = widthPx
+        params.height = heightPx
+        try {
+            windowManager.updateViewLayout(view, params)
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
+    }
+
+    private fun removeFaceCamOverlay() {
+        faceCamComposeView?.let {
+            try {
+                windowManager.removeView(it)
+            } catch (e: Exception) {
+                e.printStackTrace()
+            }
+        }
+        faceCamComposeView = null
+        faceCamLayoutParams = null
+    }
+
     override fun onDestroy() {
         super.onDestroy()
         isRunning = false
         serviceScope.cancel()
+        removeFaceCamOverlay()
         lifecycleOwner?.onDestroy()
         overlayComposeView?.let {
             try {
@@ -404,6 +655,7 @@ private fun FloatingOverlayContent(
     isExpanded: Boolean,
     isRecording: Boolean,
     isPaused: Boolean,
+    hideWhileRecording: Boolean,
     durationSeconds: Long,
     isFaceCamActive: Boolean,
     ballSizePx: Int,
@@ -660,7 +912,9 @@ private fun FloatingOverlayContent(
         // The Floating Ball View itself
         // When expanded, hide the floating button completely and keep ONLY the Ready to Record panel.
         // When user clicks 'x' (or closes it), the menu closes and the floating button returns.
-        if (!isExpanded) {
+        // During active recording, hide the floating ball completely so it is never recorded into video.
+        val shouldHideBallForRecording = isRecording && !isPaused && hideWhileRecording
+        if (!isExpanded && !shouldHideBallForRecording) {
             Box(
                 modifier = Modifier
                     .fillMaxSize()

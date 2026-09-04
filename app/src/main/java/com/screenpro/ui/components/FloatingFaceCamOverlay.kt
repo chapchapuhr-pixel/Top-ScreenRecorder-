@@ -16,7 +16,9 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
-import androidx.compose.material3.*
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
+import androidx.compose.material3.Text
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -24,45 +26,37 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.input.pointer.pointerInput
-import androidx.compose.ui.platform.LocalConfiguration
-import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.compose.LocalLifecycleOwner
-import kotlin.math.roundToInt
 
+/**
+ * FloatingFaceCamOverlay
+ * Renders the live system-wide floating FaceCam window managed by FloatingBallService.
+ * Supports dragging, shape/size/mirror switching, lens flipping, and dynamic
+ * hide/show collapsing during recordings and explanations.
+ */
 @Composable
-fun FaceCamBubble(
+fun FloatingFaceCamOverlay(
+    isCollapsed: Boolean,
     shapeType: String = "circle",
     sizeType: String = "medium",
     borderWidthDp: Int = 3,
     borderColorHex: String = "#FF4B2B",
     isMirrored: Boolean = true,
-    isRecordingActive: Boolean = false,
-    initialPosX: Float = 0.75f,
-    initialPosY: Float = 0.08f,
     isFrontCamera: Boolean = true,
-    isCollapsed: Boolean = false,
-    onPositionChanged: (Float, Float) -> Unit = { _, _ -> },
-    onSizeChanged: (String, Float) -> Unit = { _, _ -> },
-    onShapeChanged: (String) -> Unit = {},
-    onMirrorToggled: (Boolean) -> Unit = {},
-    onCameraLensSwitched: (Boolean) -> Unit = {},
-    onToggleCollapse: (Boolean) -> Unit = {},
+    onDrag: (Float, Float) -> Unit,
+    onToggleCollapse: (Boolean) -> Unit,
+    onSwitchLens: (Boolean) -> Unit,
+    onShapeChanged: (String) -> Unit,
+    onSizeChanged: (String, Float) -> Unit,
+    onMirrorToggled: (Boolean) -> Unit,
     onClose: () -> Unit
 ) {
-    val context = LocalContext.current
     val lifecycleOwner = LocalLifecycleOwner.current
-    val density = LocalDensity.current
-    val configuration = LocalConfiguration.current
-
-    val screenWidthPx = with(density) { configuration.screenWidthDp.dp.toPx() }
-    val screenHeightPx = with(density) { configuration.screenHeightDp.dp.toPx() }
 
     val parsedBorderColor = try {
         Color(android.graphics.Color.parseColor(borderColorHex))
@@ -70,36 +64,23 @@ fun FaceCamBubble(
         Color(0xFFFF4B2B)
     }
 
-    // If user collapsed the facecam to focus on screen explanation
+    // When collapsed, display a sleek floating mini pill that can be tapped to expand
     if (isCollapsed) {
-        val miniPillWidthPx = with(density) { 105.dp.toPx() }
-        val miniPillHeightPx = with(density) { 36.dp.toPx() }
-
-        var miniX by remember {
-            mutableFloatStateOf(initialPosX * (screenWidthPx - miniPillWidthPx).coerceAtLeast(1f))
-        }
-        var miniY by remember {
-            mutableFloatStateOf(initialPosY * (screenHeightPx - miniPillHeightPx).coerceAtLeast(1f))
-        }
-
         Box(
             modifier = Modifier
-                .offset { IntOffset(miniX.roundToInt(), miniY.roundToInt()) }
+                .fillMaxSize()
                 .pointerInput(Unit) {
                     detectDragGestures { change, dragAmount ->
                         change.consume()
-                        miniX = (miniX + dragAmount.x).coerceIn(0f, (screenWidthPx - miniPillWidthPx).coerceAtLeast(0f))
-                        miniY = (miniY + dragAmount.y).coerceIn(0f, (screenHeightPx - miniPillHeightPx).coerceAtLeast(0f))
-                        val pctX = (miniX / (screenWidthPx - miniPillWidthPx).coerceAtLeast(1f)).coerceIn(0f, 1f)
-                        val pctY = (miniY / (screenHeightPx - miniPillHeightPx).coerceAtLeast(1f)).coerceIn(0f, 1f)
-                        onPositionChanged(pctX, pctY)
+                        onDrag(dragAmount.x, dragAmount.y)
                     }
                 }
                 .clip(RoundedCornerShape(18.dp))
-                .background(Color(0xEE1A1A1A))
+                .background(Color(0xEE161616))
                 .border(1.5.dp, parsedBorderColor, RoundedCornerShape(18.dp))
                 .clickable { onToggleCollapse(false) }
-                .padding(horizontal = 10.dp, vertical = 6.dp)
+                .padding(horizontal = 10.dp, vertical = 6.dp),
+            contentAlignment = Alignment.Center
         ) {
             Row(
                 verticalAlignment = Alignment.CenterVertically,
@@ -122,33 +103,6 @@ fun FaceCamBubble(
         return
     }
 
-    // Bubble dimension based on sizeType
-    val (bubbleWidthDp, bubbleHeightDp, bubbleScale) = when (sizeType) {
-        "small" -> when (shapeType) {
-            "rectangle" -> Triple(130.dp, 98.dp, 0.20f)
-            else -> Triple(110.dp, 110.dp, 0.20f)
-        }
-        "large" -> when (shapeType) {
-            "rectangle" -> Triple(200.dp, 150.dp, 0.35f)
-            else -> Triple(175.dp, 175.dp, 0.35f)
-        }
-        else -> when (shapeType) { // medium
-            "rectangle" -> Triple(165.dp, 124.dp, 0.26f)
-            else -> Triple(140.dp, 140.dp, 0.26f)
-        }
-    }
-
-    val bubbleWidthPx = with(density) { bubbleWidthDp.toPx() }
-    val bubbleHeightPx = with(density) { bubbleHeightDp.toPx() }
-
-    // Initial offset in pixels calculated from normalized percentage
-    var offsetX by remember {
-        mutableFloatStateOf(initialPosX * (screenWidthPx - bubbleWidthPx).coerceAtLeast(1f))
-    }
-    var offsetY by remember {
-        mutableFloatStateOf(initialPosY * (screenHeightPx - bubbleHeightPx).coerceAtLeast(1f))
-    }
-
     var showControls by remember { mutableStateOf(false) }
 
     val bubbleShape: Shape = when (shapeType) {
@@ -159,19 +113,11 @@ fun FaceCamBubble(
 
     Box(
         modifier = Modifier
-            .offset { IntOffset(offsetX.roundToInt(), offsetY.roundToInt()) }
-            .size(width = bubbleWidthDp, height = bubbleHeightDp)
+            .fillMaxSize()
             .pointerInput(Unit) {
                 detectDragGestures { change, dragAmount ->
                     change.consume()
-                    val newX = (offsetX + dragAmount.x).coerceIn(0f, (screenWidthPx - bubbleWidthPx).coerceAtLeast(0f))
-                    val newY = (offsetY + dragAmount.y).coerceIn(0f, (screenHeightPx - bubbleHeightPx).coerceAtLeast(0f))
-                    offsetX = newX
-                    offsetY = newY
-
-                    val pctX = (newX / (screenWidthPx - bubbleWidthPx).coerceAtLeast(1f)).coerceIn(0f, 1f)
-                    val pctY = (newY / (screenHeightPx - bubbleHeightPx).coerceAtLeast(1f)).coerceIn(0f, 1f)
-                    onPositionChanged(pctX, pctY)
+                    onDrag(dragAmount.x, dragAmount.y)
                 }
             }
             .clip(bubbleShape)
@@ -179,7 +125,7 @@ fun FaceCamBubble(
             .border(borderWidthDp.dp, parsedBorderColor, bubbleShape)
             .clickable { showControls = !showControls }
     ) {
-        // Continuous Live CameraX Preview (always streaming into surface so it is fully captured in recorded video)
+        // Continuous Live CameraX Preview
         AndroidView(
             factory = { ctx ->
                 val previewView = PreviewView(ctx).apply {
@@ -230,7 +176,7 @@ fun FaceCamBubble(
             Box(
                 modifier = Modifier
                     .fillMaxSize()
-                    .background(Color.Black.copy(alpha = 0.75f))
+                    .background(Color.Black.copy(alpha = 0.78f))
                     .padding(4.dp)
             ) {
                 // Top control bar: Hide (collapse) and Close (exit)
@@ -267,7 +213,12 @@ fun FaceCamBubble(
                             .size(26.dp)
                             .background(Color.Red.copy(alpha = 0.85f), CircleShape)
                     ) {
-                        Icon(Icons.Default.Close, contentDescription = "Close", tint = Color.White, modifier = Modifier.size(15.dp))
+                        Icon(
+                            Icons.Default.Close,
+                            contentDescription = "Close FaceCam",
+                            tint = Color.White,
+                            modifier = Modifier.size(15.dp)
+                        )
                     }
                 }
 
@@ -280,7 +231,7 @@ fun FaceCamBubble(
                     Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
                         // Switch Front/Back Camera Lens
                         IconButton(
-                            onClick = { onCameraLensSwitched(!isFrontCamera) },
+                            onClick = { onSwitchLens(!isFrontCamera) },
                             modifier = Modifier
                                 .size(28.dp)
                                 .background(Color(0xFF2E2E2E), CircleShape)
@@ -350,7 +301,12 @@ fun FaceCamBubble(
                                 .size(28.dp)
                                 .background(if (isMirrored) parsedBorderColor else Color(0xFF2E2E2E), CircleShape)
                         ) {
-                            Icon(Icons.Default.Flip, contentDescription = "Mirror", tint = Color.White, modifier = Modifier.size(16.dp))
+                            Icon(
+                                Icons.Default.Flip,
+                                contentDescription = "Mirror Preview",
+                                tint = Color.White,
+                                modifier = Modifier.size(16.dp)
+                            )
                         }
                     }
                 }

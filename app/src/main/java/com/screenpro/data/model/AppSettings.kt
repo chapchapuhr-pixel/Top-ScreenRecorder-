@@ -20,6 +20,10 @@ data class AppSettings(
     val cameraBorderColor: String = "#FF4B2B",
     val cameraMirrored: Boolean = true,
     val floatingBallEnabled: Boolean = true,
+    val hideFloatingBallDuringRecording: Boolean = true,
+    val hidePhoneControls: Boolean = true,
+    val shakeToStop: Boolean = true,
+    val videoSizePreset: String = "fullscreen", // "fullscreen", "youtube", "social", "square", "cinema", "tablet", "auto"
     val filenamePrefix: String = "ScreenPro_",
     val preserveSource: Boolean = true,
     val themeMode: String = "dark" // "dark", "light", "system"
