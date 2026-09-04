@@ -49,6 +49,7 @@ fun HomeScreen(
     onTakeScreenshotClick: () -> Unit,
     onToggleDrawingClick: () -> Unit,
     onToggleFaceCamClick: () -> Unit,
+    onToggleFloatingBallClick: () -> Unit = {},
     onNavigateLibrary: () -> Unit,
     onNavigateSettings: () -> Unit,
     onPlayItem: (MediaItem) -> Unit,
@@ -317,6 +318,14 @@ fun HomeScreen(
                                     fontWeight = FontWeight.Bold
                                 )
                             }
+                            if (settings.cameraEnabled) {
+                                Text("•", color = Color.DarkGray)
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Icon(Icons.Default.AccountCircle, contentDescription = null, tint = Color(0xFF00E676), modifier = Modifier.size(18.dp))
+                                    Spacer(modifier = Modifier.width(6.dp))
+                                    Text("Facecam", color = Color(0xFF00E676), fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                                }
+                            }
                         }
                     }
                 }
@@ -366,10 +375,32 @@ fun HomeScreen(
                         modifier = Modifier.weight(1f)
                     )
                     QuickActionCard(
+                        icon = Icons.Default.RadioButtonChecked,
+                        label = "Floating Ball",
+                        sublabel = if (settings.floatingBallEnabled) "Ball Active" else "Ball Hidden",
+                        onClick = onToggleFloatingBallClick,
+                        modifier = Modifier.weight(1f)
+                    )
+                }
+
+                Spacer(modifier = Modifier.height(10.dp))
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    QuickActionCard(
                         icon = Icons.Default.VideoLibrary,
                         label = "Library",
                         sublabel = "${recentItems.size} files",
                         onClick = onNavigateLibrary,
+                        modifier = Modifier.weight(1f)
+                    )
+                    QuickActionCard(
+                        icon = Icons.Default.Settings,
+                        label = "Settings",
+                        sublabel = "Resolution & Tools",
+                        onClick = onNavigateSettings,
                         modifier = Modifier.weight(1f)
                     )
                 }

@@ -46,6 +46,7 @@ class ScreenRecordService : Service() {
         const val ACTION_RESUME = "com.screenpro.ACTION_RESUME"
         const val ACTION_STOP = "com.screenpro.ACTION_STOP"
         const val ACTION_SCREENSHOT = "com.screenpro.ACTION_SCREENSHOT"
+        const val ACTION_UPDATE_FACECAM = "com.screenpro.ACTION_UPDATE_FACECAM"
     }
 
     inner class LocalBinder : Binder() {
@@ -78,7 +79,39 @@ class ScreenRecordService : Service() {
                 val bitrate = intent.getIntExtra("VIDEO_BITRATE", 8_000_000)
                 val enableMic = intent.getBooleanExtra("ENABLE_MIC", true)
 
-                startRecordingForeground(projectionData, resultCode, width, height, fps, bitrate, enableMic)
+                val enableFaceCam = intent.getBooleanExtra("ENABLE_FACECAM", false)
+                val cameraShape = intent.getStringExtra("CAMERA_SHAPE") ?: "circle"
+                val cameraPosX = intent.getFloatExtra("CAMERA_POS_X", 0.75f)
+                val cameraPosY = intent.getFloatExtra("CAMERA_POS_Y", 0.08f)
+                val cameraScale = intent.getFloatExtra("CAMERA_SCALE", 0.26f)
+                val cameraBorderWidth = intent.getIntExtra("CAMERA_BORDER_WIDTH", 3)
+                val cameraBorderColor = intent.getStringExtra("CAMERA_BORDER_COLOR") ?: "#FF4B2B"
+                val cameraMirrored = intent.getBooleanExtra("CAMERA_MIRRORED", true)
+
+                startRecordingForeground(
+                    projectionData = projectionData,
+                    resultCode = resultCode,
+                    width = width,
+                    height = height,
+                    fps = fps,
+                    bitrate = bitrate,
+                    enableMic = enableMic,
+                    enableFaceCam = enableFaceCam,
+                    cameraShape = cameraShape,
+                    cameraPosX = cameraPosX,
+                    cameraPosY = cameraPosY,
+                    cameraScale = cameraScale,
+                    cameraBorderWidth = cameraBorderWidth,
+                    cameraBorderColor = cameraBorderColor,
+                    cameraMirrored = cameraMirrored
+                )
+            }
+            ACTION_UPDATE_FACECAM -> {
+                val posX = intent.getFloatExtra("CAMERA_POS_X", -1f)
+                val posY = intent.getFloatExtra("CAMERA_POS_Y", -1f)
+                if (posX >= 0f && posY >= 0f) {
+                    recordingManager.updateFaceCamPosition(posX, posY)
+                }
             }
             ACTION_PAUSE -> {
                 recordingManager.pauseRecording()
@@ -101,14 +134,25 @@ class ScreenRecordService : Service() {
         height: Int,
         fps: Int,
         bitrate: Int,
-        enableMic: Boolean
+        enableMic: Boolean,
+        enableFaceCam: Boolean = false,
+        cameraShape: String = "circle",
+        cameraPosX: Float = 0.75f,
+        cameraPosY: Float = 0.08f,
+        cameraScale: Float = 0.26f,
+        cameraBorderWidth: Int = 3,
+        cameraBorderColor: String = "#FF4B2B",
+        cameraMirrored: Boolean = true
     ) {
         val notification = buildNotification(isPaused = false, elapsedSec = 0)
 
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
             var serviceType = ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PROJECTION
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R && enableMic) {
                 serviceType = serviceType or ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE
+            }
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE && enableFaceCam) {
+                serviceType = serviceType or ServiceInfo.FOREGROUND_SERVICE_TYPE_CAMERA
             }
             startForeground(NOTIFICATION_ID, notification, serviceType)
         } else {
@@ -124,7 +168,15 @@ class ScreenRecordService : Service() {
                 height = height,
                 fps = fps,
                 bitrate = bitrate,
-                enableMic = enableMic
+                enableMic = enableMic,
+                enableFaceCam = enableFaceCam,
+                cameraShape = cameraShape,
+                cameraPositionX = cameraPosX,
+                cameraPositionY = cameraPosY,
+                cameraScale = cameraScale,
+                cameraBorderWidth = cameraBorderWidth,
+                cameraBorderColor = cameraBorderColor,
+                cameraMirrored = cameraMirrored
             )
             RecordingController.onRecordingStarted()
         }

@@ -26,7 +26,15 @@ class SettingsManager(context: Context) {
             noiseSuppression = prefs.getBoolean("noiseSuppression", true),
             cameraEnabled = prefs.getBoolean("cameraEnabled", false),
             cameraShape = prefs.getString("cameraShape", "circle") ?: "circle",
+            cameraPosition = prefs.getString("cameraPosition", "top-right") ?: "top-right",
+            cameraPositionX = prefs.getFloat("cameraPositionX", 0.75f),
+            cameraPositionY = prefs.getFloat("cameraPositionY", 0.08f),
+            cameraSize = prefs.getString("cameraSize", "medium") ?: "medium",
+            cameraScale = prefs.getFloat("cameraScale", 0.26f),
+            cameraBorderWidth = prefs.getInt("cameraBorderWidth", 3),
+            cameraBorderColor = prefs.getString("cameraBorderColor", "#FF4B2B") ?: "#FF4B2B",
             cameraMirrored = prefs.getBoolean("cameraMirrored", true),
+            floatingBallEnabled = prefs.getBoolean("floatingBallEnabled", true),
             filenamePrefix = prefs.getString("filenamePrefix", "ScreenPro_") ?: "ScreenPro_",
             preserveSource = prefs.getBoolean("preserveSource", true),
             themeMode = prefs.getString("themeMode", "dark") ?: "dark"
@@ -45,7 +53,15 @@ class SettingsManager(context: Context) {
             putBoolean("noiseSuppression", newSettings.noiseSuppression)
             putBoolean("cameraEnabled", newSettings.cameraEnabled)
             putString("cameraShape", newSettings.cameraShape)
+            putString("cameraPosition", newSettings.cameraPosition)
+            putFloat("cameraPositionX", newSettings.cameraPositionX)
+            putFloat("cameraPositionY", newSettings.cameraPositionY)
+            putString("cameraSize", newSettings.cameraSize)
+            putFloat("cameraScale", newSettings.cameraScale)
+            putInt("cameraBorderWidth", newSettings.cameraBorderWidth)
+            putString("cameraBorderColor", newSettings.cameraBorderColor)
             putBoolean("cameraMirrored", newSettings.cameraMirrored)
+            putBoolean("floatingBallEnabled", newSettings.floatingBallEnabled)
             putString("filenamePrefix", newSettings.filenamePrefix)
             putBoolean("preserveSource", newSettings.preserveSource)
             putString("themeMode", newSettings.themeMode)

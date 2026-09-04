@@ -1,6 +1,7 @@
 package com.screenpro.ui.screens
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
@@ -26,7 +27,8 @@ import com.screenpro.data.model.AppSettings
 @Composable
 fun SettingsScreen(
     settingsManager: SettingsManager,
-    onNavigateBack: () -> Unit
+    onNavigateBack: () -> Unit,
+    onToggleFloatingBall: (Boolean) -> Unit = {}
 ) {
     val settings by settingsManager.settings.collectAsState()
 
@@ -202,6 +204,26 @@ fun SettingsScreen(
                                 )
                             }
                         }
+
+                        SettingsCard(title = "Floating Control Ball (X Recorder Style)") {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Column(modifier = Modifier.weight(1f)) {
+                                    Text("Show Floating Ball Across All Apps", color = Color.White, fontWeight = FontWeight.SemiBold)
+                                    Text("Keeps floating icon visible even when ScreenPro is closed, with instant access to record, facecam, and screenshots", color = Color.Gray, fontSize = 12.sp)
+                                }
+                                Switch(
+                                    checked = settings.floatingBallEnabled,
+                                    onCheckedChange = { enabled ->
+                                        onToggleFloatingBall(enabled)
+                                    },
+                                    colors = SwitchDefaults.colors(checkedThumbColor = Color.White, checkedTrackColor = Color(0xFFFF4B2B))
+                                )
+                            }
+                        }
                     }
 
                     "audio" -> {
@@ -287,15 +309,15 @@ fun SettingsScreen(
                     }
 
                     "facecam" -> {
-                        SettingsCard(title = "Face Camera Floating Bubble") {
+                        SettingsCard(title = "Face Camera Video Overlay") {
                             Row(
                                 modifier = Modifier.fillMaxWidth(),
                                 horizontalArrangement = Arrangement.SpaceBetween,
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
                                 Column(modifier = Modifier.weight(1f)) {
-                                    Text("Enable Face Cam", color = Color.White)
-                                    Text("Shows front camera bubble on screen during recording", color = Color.Gray, fontSize = 12.sp)
+                                    Text("Enable Facecam", color = Color.White, fontWeight = FontWeight.SemiBold)
+                                    Text("Renders front camera directly into the recorded video file", color = Color.Gray, fontSize = 12.sp)
                                 }
                                 Switch(
                                     checked = settings.cameraEnabled,
@@ -304,32 +326,163 @@ fun SettingsScreen(
                                 )
                             }
 
-                            Divider(color = Color(0xFF2E2E2E), modifier = Modifier.padding(vertical = 8.dp))
+                            Divider(color = Color(0xFF2E2E2E), modifier = Modifier.padding(vertical = 10.dp))
 
-                            Text("Bubble Shape", color = Color.White, fontSize = 14.sp)
+                            Text("Camera Shape", color = Color.White, fontSize = 14.sp, fontWeight = FontWeight.Medium)
                             Spacer(modifier = Modifier.height(6.dp))
-                            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                                FilterChip(
-                                    selected = settings.cameraShape == "circle",
-                                    onClick = { settingsManager.updateSettings(settings.copy(cameraShape = "circle")) },
-                                    label = { Text("Circular") },
-                                    colors = FilterChipDefaults.filterChipColors(
-                                        selectedContainerColor = Color(0xFFFF4B2B),
-                                        selectedLabelColor = Color.White
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                listOf("circle" to "Circle", "rounded-square" to "Rounded", "rectangle" to "Rectangle").forEach { (shapeKey, shapeLabel) ->
+                                    FilterChip(
+                                        selected = settings.cameraShape == shapeKey,
+                                        onClick = { settingsManager.updateSettings(settings.copy(cameraShape = shapeKey)) },
+                                        label = { Text(shapeLabel) },
+                                        colors = FilterChipDefaults.filterChipColors(
+                                            selectedContainerColor = Color(0xFFFF4B2B),
+                                            selectedLabelColor = Color.White
+                                        )
                                     )
-                                )
-                                FilterChip(
-                                    selected = settings.cameraShape == "rounded-square",
-                                    onClick = { settingsManager.updateSettings(settings.copy(cameraShape = "rounded-square")) },
-                                    label = { Text("Rounded Square") },
-                                    colors = FilterChipDefaults.filterChipColors(
-                                        selectedContainerColor = Color(0xFFFF4B2B),
-                                        selectedLabelColor = Color.White
-                                    )
-                                )
+                                }
                             }
 
-                            Divider(color = Color(0xFF2E2E2E), modifier = Modifier.padding(vertical = 8.dp))
+                            Divider(color = Color(0xFF2E2E2E), modifier = Modifier.padding(vertical = 10.dp))
+
+                            Text("Overlay Size", color = Color.White, fontSize = 14.sp, fontWeight = FontWeight.Medium)
+                            Spacer(modifier = Modifier.height(6.dp))
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                listOf(
+                                    Triple("small", "Small (20%)", 0.20f),
+                                    Triple("medium", "Medium (26%)", 0.26f),
+                                    Triple("large", "Large (35%)", 0.35f)
+                                ).forEach { (sizeKey, sizeLabel, scaleVal) ->
+                                    FilterChip(
+                                        selected = settings.cameraSize == sizeKey,
+                                        onClick = {
+                                            settingsManager.updateSettings(
+                                                settings.copy(cameraSize = sizeKey, cameraScale = scaleVal)
+                                            )
+                                        },
+                                        label = { Text(sizeLabel) },
+                                        colors = FilterChipDefaults.filterChipColors(
+                                            selectedContainerColor = Color(0xFFFF4B2B),
+                                            selectedLabelColor = Color.White
+                                        )
+                                    )
+                                }
+                            }
+
+                            Divider(color = Color(0xFF2E2E2E), modifier = Modifier.padding(vertical = 10.dp))
+
+                            Text("Default Corner Position", color = Color.White, fontSize = 14.sp, fontWeight = FontWeight.Medium)
+                            Spacer(modifier = Modifier.height(6.dp))
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                listOf(
+                                    Triple("top-right", "Top Right", 0.75f to 0.08f),
+                                    Triple("top-left", "Top Left", 0.08f to 0.08f),
+                                    Triple("bottom-right", "Bottom Right", 0.75f to 0.85f),
+                                    Triple("bottom-left", "Bottom Left", 0.08f to 0.85f)
+                                ).forEach { (posKey, posLabel, coords) ->
+                                    FilterChip(
+                                        selected = settings.cameraPosition == posKey,
+                                        onClick = {
+                                            settingsManager.updateSettings(
+                                                settings.copy(
+                                                    cameraPosition = posKey,
+                                                    cameraPositionX = coords.first,
+                                                    cameraPositionY = coords.second
+                                                )
+                                            )
+                                        },
+                                        label = { Text(posLabel) },
+                                        colors = FilterChipDefaults.filterChipColors(
+                                            selectedContainerColor = Color(0xFFFF4B2B),
+                                            selectedLabelColor = Color.White
+                                        )
+                                    )
+                                }
+                            }
+
+                            Divider(color = Color(0xFF2E2E2E), modifier = Modifier.padding(vertical = 10.dp))
+
+                            Text("Border Thickness", color = Color.White, fontSize = 14.sp, fontWeight = FontWeight.Medium)
+                            Spacer(modifier = Modifier.height(6.dp))
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                listOf(0 to "None", 2 to "Thin", 3 to "Medium", 5 to "Bold").forEach { (widthVal, widthLabel) ->
+                                    FilterChip(
+                                        selected = settings.cameraBorderWidth == widthVal,
+                                        onClick = {
+                                            settingsManager.updateSettings(settings.copy(cameraBorderWidth = widthVal))
+                                        },
+                                        label = { Text(widthLabel) },
+                                        colors = FilterChipDefaults.filterChipColors(
+                                            selectedContainerColor = Color(0xFFFF4B2B),
+                                            selectedLabelColor = Color.White
+                                        )
+                                    )
+                                }
+                            }
+
+                            if (settings.cameraBorderWidth > 0) {
+                                Spacer(modifier = Modifier.height(10.dp))
+                                Text("Border Color", color = Color.White, fontSize = 14.sp, fontWeight = FontWeight.Medium)
+                                Spacer(modifier = Modifier.height(8.dp))
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.spacedBy(12.dp),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    val palette = listOf(
+                                        "#FF4B2B" to "Coral",
+                                        "#FFFFFF" to "White",
+                                        "#00E5FF" to "Cyan",
+                                        "#00E676" to "Green",
+                                        "#FFD600" to "Yellow",
+                                        "#E040FB" to "Magenta"
+                                    )
+                                    palette.forEach { (hex, name) ->
+                                        val c = Color(android.graphics.Color.parseColor(hex))
+                                        Box(
+                                            modifier = Modifier
+                                                .size(36.dp)
+                                                .clip(CircleShape)
+                                                .background(c)
+                                                .clickable {
+                                                    settingsManager.updateSettings(settings.copy(cameraBorderColor = hex))
+                                                }
+                                                .then(
+                                                    if (settings.cameraBorderColor.equals(hex, ignoreCase = true)) {
+                                                        Modifier.border(3.dp, Color.White, CircleShape)
+                                                    } else {
+                                                        Modifier.border(1.dp, Color.DarkGray, CircleShape)
+                                                    }
+                                                ),
+                                            contentAlignment = Alignment.Center
+                                        ) {
+                                            if (settings.cameraBorderColor.equals(hex, ignoreCase = true)) {
+                                                Icon(
+                                                    Icons.Default.Check,
+                                                    contentDescription = name,
+                                                    tint = if (hex == "#FFFFFF") Color.Black else Color.White,
+                                                    modifier = Modifier.size(20.dp)
+                                                )
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+
+                            Divider(color = Color(0xFF2E2E2E), modifier = Modifier.padding(vertical = 10.dp))
 
                             Row(
                                 modifier = Modifier.fillMaxWidth(),
@@ -337,14 +490,36 @@ fun SettingsScreen(
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
                                 Column(modifier = Modifier.weight(1f)) {
-                                    Text("Mirror Camera View", color = Color.White)
-                                    Text("Flips preview horizontally for selfie orientation", color = Color.Gray, fontSize = 12.sp)
+                                    Text("Mirror Front Camera", color = Color.White, fontWeight = FontWeight.SemiBold)
+                                    Text("Flips camera horizontally for a natural selfie orientation", color = Color.Gray, fontSize = 12.sp)
                                 }
                                 Switch(
                                     checked = settings.cameraMirrored,
                                     onCheckedChange = { settingsManager.updateSettings(settings.copy(cameraMirrored = it)) },
                                     colors = SwitchDefaults.colors(checkedThumbColor = Color.White, checkedTrackColor = Color(0xFFFF4B2B))
                                 )
+                            }
+                        }
+
+                        // Hardware Acceleration Info Card
+                        Surface(
+                            shape = RoundedCornerShape(12.dp),
+                            color = Color(0xFF161616),
+                            border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFF2E2E2E))
+                        ) {
+                            Row(modifier = Modifier.padding(14.dp), verticalAlignment = Alignment.Top) {
+                                Icon(Icons.Default.AutoFixHigh, contentDescription = null, tint = Color(0xFFFF4B2B))
+                                Spacer(modifier = Modifier.width(10.dp))
+                                Column {
+                                    Text("Hardware-Accelerated Compositing", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                                    Spacer(modifier = Modifier.height(4.dp))
+                                    Text(
+                                        text = "The camera stream is composited into the recorded video using OpenGL ES 2.0 GPU shaders. You can drag and position the facecam freely while recording without dropping frames.",
+                                        color = Color.LightGray,
+                                        fontSize = 12.sp,
+                                        lineHeight = 17.sp
+                                    )
+                                }
                             }
                         }
                     }
