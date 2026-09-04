@@ -603,39 +603,23 @@ class MainActivity : ComponentActivity() {
 
     private fun refreshMediaItems() {
         lifecycleScope.launch(Dispatchers.IO) {
-            val items = mediaStoreRepository.loadMediaItems().toMutableList()
-
-            // If MediaStore is completely empty, create an initial demo recording for immediate user preview
-            if (items.isEmpty()) {
-                try {
-                    val demoFile = File(cacheDir, "ScreenPro_Demo_FHD.mp4")
-                    if (!demoFile.exists()) {
-                        // Create valid small MP4 stub
-                        FileOutputStream(demoFile).use { fos ->
-                            fos.write(byteArrayOf(0x00, 0x00, 0x00, 0x1C, 0x66, 0x74, 0x79, 0x70, 0x69, 0x73, 0x6F, 0x6D))
-                        }
-                    }
-                    val demoUri = mediaStoreRepository.saveVideoToMediaStore(demoFile, "ScreenPro_Demo_FHD")
-                    if (demoUri != null) {
-                        items.add(
-                            MediaItem(
-                                id = "demo_1",
-                                type = MediaType.VIDEO,
-                                title = "ScreenPro_Demo_FHD",
-                                filename = "ScreenPro_Demo_FHD.mp4",
-                                createdAt = System.currentTimeMillis() - 60000,
-                                duration = 12L,
-                                fileSize = 14_800_000L,
-                                mimeType = "video/mp4",
-                                uri = demoUri,
-                                width = 1080,
-                                height = 1920
-                            )
-                        )
-                    }
-                } catch (e: Exception) {
-                    e.printStackTrace()
+            // Clean up any legacy demo items if present from past runs
+            val currentItems = mediaStoreRepository.loadMediaItems()
+            for (item in currentItems) {
+                if (item.filename.contains("ScreenPro_Demo") || item.title.contains("ScreenPro_Demo")) {
+                    try {
+                        mediaStoreRepository.deleteMediaItem(item.uri)
+                    } catch (_: Exception) {}
                 }
+            }
+            try {
+                val demoCache = File(cacheDir, "ScreenPro_Demo_FHD.mp4")
+                if (demoCache.exists()) demoCache.delete()
+            } catch (_: Exception) {}
+
+            // Load pure user recordings and screenshots
+            val items = mediaStoreRepository.loadMediaItems().filterNot {
+                it.filename.contains("ScreenPro_Demo") || it.title.contains("ScreenPro_Demo")
             }
 
             withContext(Dispatchers.Main) {

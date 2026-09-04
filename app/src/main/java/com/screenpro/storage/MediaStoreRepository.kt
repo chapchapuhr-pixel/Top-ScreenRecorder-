@@ -266,6 +266,8 @@ class MediaStoreRepository(private val context: Context) {
         }
     }
 
+    fun deleteMediaItem(item: com.screenpro.data.model.MediaItem): Boolean = deleteMediaItem(item.uri)
+
     fun renameMediaItem(uri: Uri, newTitle: String): Boolean {
         return try {
             val values = ContentValues().apply {

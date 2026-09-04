@@ -238,11 +238,7 @@ class FloatingBallService : Service() {
                     onStartRecord = {
                         isMenuExpanded.value = false
                         updateWindowForMenuState(false)
-                        val mainIntent = Intent(applicationContext, MainActivity::class.java).apply {
-                            action = "com.screenpro.ACTION_START_RECORD_FROM_FLOAT"
-                            flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP
-                        }
-                        startActivity(mainIntent)
+                        CaptureLauncherActivity.startRecord(applicationContext)
                     },
                     onPauseRecord = {
                         val pauseIntent = Intent(applicationContext, ScreenRecordService::class.java).apply {
@@ -267,11 +263,14 @@ class FloatingBallService : Service() {
                     onTakeScreenshot = {
                         isMenuExpanded.value = false
                         updateWindowForMenuState(false)
-                        val screenIntent = Intent(applicationContext, MainActivity::class.java).apply {
-                            action = "com.screenpro.ACTION_SCREENSHOT_FROM_FLOAT"
-                            flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP
+                        if (RecordingController.isRecording.value) {
+                            val screenIntent = Intent(applicationContext, ScreenRecordService::class.java).apply {
+                                action = ScreenRecordService.ACTION_SCREENSHOT
+                            }
+                            startService(screenIntent)
+                        } else {
+                            CaptureLauncherActivity.captureScreenshot(applicationContext)
                         }
-                        startActivity(screenIntent)
                     },
                     onToggleFaceCam = {
                         val newCamState = !settings.cameraEnabled
@@ -659,106 +658,102 @@ private fun FloatingOverlayContent(
         }
 
         // The Floating Ball View itself
-        // When collapsed, it fills the small window; when expanded, it positions at posX, posY
-        val ballModifier = if (isExpanded) {
-            Modifier.offset { IntOffset(posX.roundToInt(), posY.roundToInt()) }
-        } else {
-            Modifier.fillMaxSize()
-        }
-
-        Box(
-            modifier = ballModifier
-                .size(56.dp)
-                .alpha(if (isExpanded) 1f else if (isIdle) 0.55f else 0.95f)
-                .shadow(10.dp, CircleShape)
-                .clip(CircleShape)
-                .background(
-                    Brush.radialGradient(
-                        colors = if (isRecording) {
-                            if (isPaused) listOf(Color(0xFFFFB300), Color(0xFFE65100))
-                            else listOf(Color(0xFFFF5252), Color(0xFFD50000))
-                        } else {
-                            listOf(Color(0xFF2A2A2A), Color(0xFF141414))
-                        }
+        // When expanded, hide the floating button completely and keep ONLY the Ready to Record panel.
+        // When user clicks 'x' (or closes it), the menu closes and the floating button returns.
+        if (!isExpanded) {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .size(56.dp)
+                    .alpha(if (isIdle) 0.55f else 0.95f)
+                    .shadow(10.dp, CircleShape)
+                    .clip(CircleShape)
+                    .background(
+                        Brush.radialGradient(
+                            colors = if (isRecording) {
+                                if (isPaused) listOf(Color(0xFFFFB300), Color(0xFFE65100))
+                                else listOf(Color(0xFFFF5252), Color(0xFFD50000))
+                            } else {
+                                listOf(Color(0xFF2A2A2A), Color(0xFF141414))
+                            }
+                        )
                     )
-                )
-                .border(
-                    2.dp,
-                    if (isRecording) {
-                        if (isPaused) Color(0xFFFFD54F) else Color(0xFFFF8A80)
-                    } else Color(0xFFFF4B2B),
-                    CircleShape
-                )
-                .pointerInput(Unit) {
-                    detectTapGestures(
-                        onTap = {
-                            if (!isExpanded) {
+                    .border(
+                        2.dp,
+                        if (isRecording) {
+                            if (isPaused) Color(0xFFFFD54F) else Color(0xFFFF8A80)
+                        } else Color(0xFFFF4B2B),
+                        CircleShape
+                    )
+                    .pointerInput(Unit) {
+                        detectTapGestures(
+                            onTap = {
                                 onBallTapped()
                             }
-                        }
-                    )
-                }
-                .pointerInput(Unit) {
-                    detectDragGestures(
-                        onDragStart = {
-                            isDragging = true
-                            isIdle = false
-                        },
-                        onDragEnd = {
-                            isDragging = false
-                            if (isOverDismissArea) {
-                                onDismissBall()
-                            } else {
-                                // Snap gently toward nearest left or right edge
-                                val margin = 16f
-                                val targetSnapX = if (posX + ballSizePx / 2f < screenWidthPx / 2f) {
-                                    margin
+                        )
+                    }
+                    .pointerInput(Unit) {
+                        detectDragGestures(
+                            onDragStart = {
+                                isDragging = true
+                                isIdle = false
+                            },
+                            onDragEnd = {
+                                isDragging = false
+                                if (isOverDismissArea) {
+                                    onDismissBall()
                                 } else {
-                                    (screenWidthPx - ballSizePx - margin)
+                                    // Snap gently toward nearest left or right edge
+                                    val margin = 16f
+                                    val targetSnapX = if (posX + ballSizePx / 2f < screenWidthPx / 2f) {
+                                        margin
+                                    } else {
+                                        (screenWidthPx - ballSizePx - margin)
+                                    }
+                                    posX = targetSnapX
+                                    onPositionChanged(posX.roundToInt(), posY.roundToInt())
                                 }
-                                posX = targetSnapX
+                            },
+                            onDragCancel = {
+                                isDragging = false
+                            },
+                            onDrag = { change, dragAmount ->
+                                change.consume()
+                                isIdle = false
+                                posX = (posX + dragAmount.x).coerceIn(8f, screenWidthPx - ballSizePx - 8f)
+                                posY = (posY + dragAmount.y).coerceIn(40f, screenHeightPx - ballSizePx - 40f)
                                 onPositionChanged(posX.roundToInt(), posY.roundToInt())
                             }
-                        },
-                        onDragCancel = {
-                            isDragging = false
-                        },
-                        onDrag = { change, dragAmount ->
-                            change.consume()
-                            isIdle = false
-                            posX = (posX + dragAmount.x).coerceIn(8f, screenWidthPx - ballSizePx - 8f)
-                            posY = (posY + dragAmount.y).coerceIn(40f, screenHeightPx - ballSizePx - 40f)
-                            onPositionChanged(posX.roundToInt(), posY.roundToInt())
-                        }
-                    )
-                },
-            contentAlignment = Alignment.Center
-        ) {
-            if (isRecording) {
-                Column(
-                    horizontalAlignment = Alignment.CenterHorizontally,
-                    verticalArrangement = Arrangement.Center
-                ) {
+                        )
+                    },
+                contentAlignment = Alignment.Center
+            ) {
+                if (isRecording) {
+                    Column(
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.Center
+                    ) {
+                        Icon(
+                            imageVector = if (isPaused) Icons.Default.Pause else Icons.Default.FiberManualRecord,
+                            contentDescription = "Recording Active",
+                            tint = Color.White,
+                            modifier = Modifier.size(18.dp)
+                        )
+                        Text(
+                            text = formatDuration(durationSeconds),
+                            color = Color.White,
+                            fontSize = 9.sp,
+                            fontWeight = FontWeight.Black
+                        )
+                    }
+                } else {
                     Icon(
-                        imageVector = if (isPaused) Icons.Default.Pause else Icons.Default.FiberManualRecord,
-                        contentDescription = "Recording Active",
-                        tint = Color.White,
-                        modifier = Modifier.size(18.dp)
-                    )
-                    Text(
-                        text = formatDuration(durationSeconds),
-                        color = Color.White,
-                        fontSize = 9.sp,
-                        fontWeight = FontWeight.Black
+                        imageVector = Icons.Default.Videocam,
+                        contentDescription = "Quick Recorder Menu",
+                        tint = Color(0xFFFF4B2B),
+                        modifier = Modifier.size(28.dp)
                     )
                 }
-            } else {
-                Icon(
-                    imageVector = Icons.Default.Videocam,
-                    contentDescription = "Quick Recorder Menu",
-                    tint = Color(0xFFFF4B2B),
-                    modifier = Modifier.size(28.dp)
-                )
             }
         }
     }

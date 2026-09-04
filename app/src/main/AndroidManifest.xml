@@ -44,6 +44,15 @@
             </intent-filter>
         </activity>
 
+        <activity
+            android:name=".service.CaptureLauncherActivity"
+            android:exported="false"
+            android:theme="@style/Theme.ScreenPro.Transparent"
+            android:noHistory="true"
+            android:excludeFromRecents="true"
+            android:launchMode="singleInstance"
+            android:configChanges="orientation|screenSize|screenLayout|keyboardHidden" />
+
         <service
             android:name=".service.ScreenRecordService"
             android:exported="false"

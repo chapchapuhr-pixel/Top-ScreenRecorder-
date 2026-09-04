@@ -391,100 +391,102 @@ fun FloatingControlBall(
             }
         }
 
-        // Floating Ball (The Draggable Bubble itself)
-        Box(
-            modifier = Modifier
-                .offset { IntOffset(offsetX.roundToInt(), offsetY.roundToInt()) }
-                .size(ballSizeDp)
-                .alpha(if (isExpanded) 1f else if (isIdle) 0.55f else 0.95f)
-                .scale(if (isRecording && !isPaused) pulseScale else 1f)
-                .shadow(10.dp, CircleShape)
-                .clip(CircleShape)
-                .background(
-                    Brush.radialGradient(
-                        colors = if (isRecording) {
-                            if (isPaused) listOf(Color(0xFFFFB300), Color(0xFFE65100))
-                            else listOf(Color(0xFFFF5252), Color(0xFFD50000))
-                        } else {
-                            listOf(Color(0xFF2A2A2A), Color(0xFF141414))
-                        }
-                    )
-                )
-                .border(
-                    2.dp,
-                    if (isRecording) {
-                        if (isPaused) Color(0xFFFFD54F) else Color(0xFFFF8A80)
-                    } else Color(0xFFFF4B2B),
-                    CircleShape
-                )
-                .pointerInput(Unit) {
-                    detectTapGestures(
-                        onTap = {
-                            isExpanded = !isExpanded
-                            isIdle = false
-                        }
-                    )
-                }
-                .pointerInput(Unit) {
-                    detectDragGestures(
-                        onDragStart = {
-                            isDragging = true
-                            isIdle = false
-                        },
-                        onDragEnd = {
-                            isDragging = false
-                            if (isOverDismissArea) {
-                                onDismissBall()
+        // Floating Ball (The Draggable Bubble itself) - hidden when expanded so only Ready to Record panel is visible
+        if (!isExpanded) {
+            Box(
+                modifier = Modifier
+                    .offset { IntOffset(offsetX.roundToInt(), offsetY.roundToInt()) }
+                    .size(ballSizeDp)
+                    .alpha(if (isIdle) 0.55f else 0.95f)
+                    .scale(if (isRecording && !isPaused) pulseScale else 1f)
+                    .shadow(10.dp, CircleShape)
+                    .clip(CircleShape)
+                    .background(
+                        Brush.radialGradient(
+                            colors = if (isRecording) {
+                                if (isPaused) listOf(Color(0xFFFFB300), Color(0xFFE65100))
+                                else listOf(Color(0xFFFF5252), Color(0xFFD50000))
                             } else {
-                                // Snap gently toward nearest left or right edge like XRecorder
-                                val margin = 16f
-                                val targetSnapX = if (offsetX + ballSizePx / 2f < screenWidthPx / 2f) {
-                                    margin
-                                } else {
-                                    screenWidthPx - ballSizePx - margin
-                                }
-                                offsetX = targetSnapX
+                                listOf(Color(0xFF2A2A2A), Color(0xFF141414))
                             }
-                        },
-                        onDragCancel = {
-                            isDragging = false
-                        },
-                        onDrag = { change, dragAmount ->
-                            change.consume()
-                            isIdle = false
-                            offsetX = (offsetX + dragAmount.x).coerceIn(8f, screenWidthPx - ballSizePx - 8f)
-                            offsetY = (offsetY + dragAmount.y).coerceIn(40f, screenHeightPx - ballSizePx - 40f)
-                        }
+                        )
                     )
-                },
-            contentAlignment = Alignment.Center
-        ) {
-            if (isRecording) {
-                Column(
-                    horizontalAlignment = Alignment.CenterHorizontally,
-                    verticalArrangement = Arrangement.Center
-                ) {
+                    .border(
+                        2.dp,
+                        if (isRecording) {
+                            if (isPaused) Color(0xFFFFD54F) else Color(0xFFFF8A80)
+                        } else Color(0xFFFF4B2B),
+                        CircleShape
+                    )
+                    .pointerInput(Unit) {
+                        detectTapGestures(
+                            onTap = {
+                                isExpanded = true
+                                isIdle = false
+                            }
+                        )
+                    }
+                    .pointerInput(Unit) {
+                        detectDragGestures(
+                            onDragStart = {
+                                isDragging = true
+                                isIdle = false
+                            },
+                            onDragEnd = {
+                                isDragging = false
+                                if (isOverDismissArea) {
+                                    onDismissBall()
+                                } else {
+                                    // Snap gently toward nearest left or right edge like XRecorder
+                                    val margin = 16f
+                                    val targetSnapX = if (offsetX + ballSizePx / 2f < screenWidthPx / 2f) {
+                                        margin
+                                    } else {
+                                        screenWidthPx - ballSizePx - margin
+                                    }
+                                    offsetX = targetSnapX
+                                }
+                            },
+                            onDragCancel = {
+                                isDragging = false
+                            },
+                            onDrag = { change, dragAmount ->
+                                change.consume()
+                                isIdle = false
+                                offsetX = (offsetX + dragAmount.x).coerceIn(8f, screenWidthPx - ballSizePx - 8f)
+                                offsetY = (offsetY + dragAmount.y).coerceIn(40f, screenHeightPx - ballSizePx - 40f)
+                            }
+                        )
+                    },
+                contentAlignment = Alignment.Center
+            ) {
+                if (isRecording) {
+                    Column(
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.Center
+                    ) {
+                        Icon(
+                            imageVector = if (isPaused) Icons.Default.Pause else Icons.Default.FiberManualRecord,
+                            contentDescription = "Recording Active",
+                            tint = Color.White,
+                            modifier = Modifier.size(18.dp)
+                        )
+                        Text(
+                            text = formatDuration(durationSeconds),
+                            color = Color.White,
+                            fontSize = 9.sp,
+                            fontWeight = FontWeight.Black
+                        )
+                    }
+                } else {
+                    // Idle icon with video camera glyph
                     Icon(
-                        imageVector = if (isPaused) Icons.Default.Pause else Icons.Default.FiberManualRecord,
-                        contentDescription = "Recording Active",
-                        tint = Color.White,
-                        modifier = Modifier.size(18.dp)
-                    )
-                    Text(
-                        text = formatDuration(durationSeconds),
-                        color = Color.White,
-                        fontSize = 9.sp,
-                        fontWeight = FontWeight.Black
+                        imageVector = Icons.Default.Videocam,
+                        contentDescription = "Screen Recorder Quick Menu",
+                        tint = Color(0xFFFF4B2B),
+                        modifier = Modifier.size(28.dp)
                     )
                 }
-            } else {
-                // Idle icon with video camera glyph
-                Icon(
-                    imageVector = Icons.Default.Videocam,
-                    contentDescription = "Screen Recorder Quick Menu",
-                    tint = Color(0xFFFF4B2B),
-                    modifier = Modifier.size(28.dp)
-                )
             }
         }
     }
