@@ -1,6 +1,7 @@
 package com.screenpro.ui.screens
 
 import android.net.Uri
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
@@ -39,7 +40,8 @@ fun LibraryScreen(
     onShareItem: (MediaItem) -> Unit,
     onDeleteItem: (MediaItem) -> Unit,
     onRenameItem: (MediaItem, String) -> Unit,
-    onNavigateBack: () -> Unit
+    onNavigateBack: () -> Unit,
+    onNavigateHome: () -> Unit = onNavigateBack
 ) {
     val context = LocalContext.current
 
@@ -48,6 +50,16 @@ fun LibraryScreen(
     var sortBy by remember { mutableStateOf("newest") } // "newest", "oldest", "largest", "smallest"
     var isMultiSelectMode by remember { mutableStateOf(false) }
     val selectedIds = remember { mutableStateListOf<String>() }
+
+    // Intercept back key when in multi-select or searching
+    BackHandler(enabled = isMultiSelectMode || searchQuery.isNotEmpty()) {
+        if (isMultiSelectMode) {
+            isMultiSelectMode = false
+            selectedIds.clear()
+        } else if (searchQuery.isNotEmpty()) {
+            searchQuery = ""
+        }
+    }
 
     // Dialogs state
     var itemForDetails by remember { mutableStateOf<MediaItem?>(null) }
@@ -156,6 +168,9 @@ fun LibraryScreen(
                             }
                         }
                     } else {
+                        IconButton(onClick = onNavigateHome) {
+                            Icon(Icons.Default.Home, contentDescription = "Home Page Shortcut", tint = Color.White)
+                        }
                         IconButton(onClick = { isMultiSelectMode = true }) {
                             Icon(Icons.Default.Checklist, contentDescription = "Multi-select", tint = Color.White)
                         }

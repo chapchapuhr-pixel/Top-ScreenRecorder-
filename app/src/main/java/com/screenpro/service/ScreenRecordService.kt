@@ -23,6 +23,7 @@ import com.screenpro.R
 import com.screenpro.data.SettingsManager
 import com.screenpro.recording.RecordingController
 import com.screenpro.recording.ScreenRecordingManager
+import com.screenpro.recording.TouchVisualizerHelper
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -55,6 +56,10 @@ class ScreenRecordService : Service() {
         const val ACTION_TOGGLE_FACECAM = "com.screenpro.ACTION_TOGGLE_FACECAM"
         const val ACTION_HIDE_FACECAM = "com.screenpro.ACTION_HIDE_FACECAM"
         const val ACTION_SHOW_FACECAM = "com.screenpro.ACTION_SHOW_FACECAM"
+        const val ACTION_HOLD_AND_PREVIEW = "com.screenpro.ACTION_HOLD_AND_PREVIEW"
+        const val ACTION_CONTINUE = "com.screenpro.ACTION_CONTINUE"
+        const val ACTION_SAVE_AND_FINISH = "com.screenpro.ACTION_SAVE_AND_FINISH"
+        const val ACTION_DISCARD = "com.screenpro.ACTION_DISCARD"
     }
 
     inner class LocalBinder : Binder() {
@@ -86,8 +91,15 @@ class ScreenRecordService : Service() {
                 val fps = intent.getIntExtra("VIDEO_FPS", 60)
                 val bitrate = intent.getIntExtra("VIDEO_BITRATE", 8_000_000)
                 val enableMic = intent.getBooleanExtra("ENABLE_MIC", true)
+                val audioBitrate = intent.getIntExtra("AUDIO_BITRATE", 192_000)
+                val audioSampleRate = intent.getIntExtra("AUDIO_SAMPLE_RATE", 48_000)
+                val audioChannels = intent.getIntExtra("AUDIO_CHANNELS", 2)
 
                 val enableFaceCam = intent.getBooleanExtra("ENABLE_FACECAM", false)
+                val showTouches = intent.getBooleanExtra("SHOW_TOUCHES", false)
+                if (showTouches) {
+                    TouchVisualizerHelper.enableTouchesForRecording(this)
+                }
                 val cameraShape = intent.getStringExtra("CAMERA_SHAPE") ?: "circle"
                 val cameraPosX = intent.getFloatExtra("CAMERA_POS_X", 0.75f)
                 val cameraPosY = intent.getFloatExtra("CAMERA_POS_Y", 0.08f)
@@ -111,8 +123,27 @@ class ScreenRecordService : Service() {
                     cameraScale = cameraScale,
                     cameraBorderWidth = cameraBorderWidth,
                     cameraBorderColor = cameraBorderColor,
-                    cameraMirrored = cameraMirrored
+                    cameraMirrored = cameraMirrored,
+                    audioBitrate = audioBitrate,
+                    audioSampleRate = audioSampleRate,
+                    audioChannels = audioChannels
                 )
+            }
+            ACTION_HOLD_AND_PREVIEW -> {
+                recordingManager.holdAndPreviewSegment { file, uri ->
+                    updateNotification(isPaused = true, RecordingController.elapsedSeconds.value)
+                }
+            }
+            ACTION_CONTINUE -> {
+                recordingManager.continueRecordingSegment()
+                updateNotification(isPaused = false, RecordingController.elapsedSeconds.value)
+            }
+            ACTION_SAVE_AND_FINISH -> stopRecordingForeground()
+            ACTION_DISCARD -> {
+                tearDownShakeDetector()
+                recordingManager.discardRecording()
+                stopForeground(STOP_FOREGROUND_REMOVE)
+                stopSelf()
             }
             ACTION_UPDATE_FACECAM -> {
                 val posX = intent.getFloatExtra("CAMERA_POS_X", -1f)
@@ -162,7 +193,10 @@ class ScreenRecordService : Service() {
         cameraScale: Float = 0.26f,
         cameraBorderWidth: Int = 3,
         cameraBorderColor: String = "#FF4B2B",
-        cameraMirrored: Boolean = true
+        cameraMirrored: Boolean = true,
+        audioBitrate: Int = 192_000,
+        audioSampleRate: Int = 48_000,
+        audioChannels: Int = 2
     ) {
         val notification = buildNotification(isPaused = false, elapsedSec = 0)
 
@@ -196,7 +230,10 @@ class ScreenRecordService : Service() {
                 cameraScale = cameraScale,
                 cameraBorderWidth = cameraBorderWidth,
                 cameraBorderColor = cameraBorderColor,
-                cameraMirrored = cameraMirrored
+                cameraMirrored = cameraMirrored,
+                audioBitrate = audioBitrate,
+                audioSampleRate = audioSampleRate,
+                audioChannels = audioChannels
             )
             RecordingController.onRecordingStarted()
         }
@@ -269,6 +306,7 @@ class ScreenRecordService : Service() {
 
     private fun stopRecordingForeground() {
         tearDownShakeDetector()
+        TouchVisualizerHelper.restoreTouchesAfterRecording(this)
         recordingManager.stopRecording { success, uri ->
             RecordingController.onRecordingStopped()
             stopForeground(STOP_FOREGROUND_REMOVE)
@@ -358,6 +396,7 @@ class ScreenRecordService : Service() {
 
     override fun onDestroy() {
         super.onDestroy()
+        TouchVisualizerHelper.restoreTouchesAfterRecording(this)
         serviceScope.cancel()
     }
 }

@@ -1,5 +1,6 @@
 package com.screenpro
 
+import android.app.Activity
 import android.Manifest
 import android.content.Intent
 import android.content.pm.PackageManager
@@ -14,6 +15,7 @@ import android.os.Bundle
 import android.provider.Settings
 import android.widget.Toast
 import androidx.activity.ComponentActivity
+import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
@@ -21,12 +23,16 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
-import androidx.compose.material3.Scaffold
-import androidx.compose.material3.SnackbarHost
-import androidx.compose.material3.SnackbarHostState
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Home
+import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material.icons.filled.VideoLibrary
+import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
@@ -69,13 +75,50 @@ class MainActivity : ComponentActivity() {
 
     // Navigation and Modals State
     private var currentScreen by mutableStateOf("home") // "home", "library", "settings", "player", "editor"
+    private val navigationStack = mutableStateListOf<String>("home")
     private var activePlayerItem by mutableStateOf<MediaItem?>(null)
     private var activeEditorItem by mutableStateOf<MediaItem?>(null)
+
+    private fun navigateTo(screen: String) {
+        if (screen == "home") {
+            navigationStack.clear()
+            navigationStack.add("home")
+            currentScreen = "home"
+        } else {
+            if (navigationStack.lastOrNull() != screen) {
+                navigationStack.add(screen)
+            }
+            currentScreen = screen
+        }
+    }
+
+    private fun navigateBack() {
+        if (navigationStack.size > 1) {
+            navigationStack.removeAt(navigationStack.size - 1)
+            currentScreen = navigationStack.last()
+        } else {
+            currentScreen = "home"
+        }
+        if (currentScreen != "player") activePlayerItem = null
+        if (currentScreen != "editor") activeEditorItem = null
+    }
+
+    private fun navigateHome() {
+        navigationStack.clear()
+        navigationStack.add("home")
+        currentScreen = "home"
+        activePlayerItem = null
+        activeEditorItem = null
+    }
 
     // Overlays
     private var showCountdown by mutableStateOf(false)
     private var showDrawing by mutableStateOf(false)
     private var showFaceCam by mutableStateOf(false)
+
+    // Pending projection state for countdown
+    private var pendingProjectionData: Intent? = null
+    private var pendingResultCode: Int = Activity.RESULT_CANCELED
 
     private val permissionLauncher = registerForActivityResult(
         ActivityResultContracts.RequestMultiplePermissions()
@@ -98,50 +141,58 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    private fun launchScreenRecordService(resultCode: Int, data: Intent) {
+        val settings = settingsManager.settings.value
+
+        val (width, height) = VideoResolutionHelper.getVideoDimensions(applicationContext, settings)
+        val bitrate = VideoResolutionHelper.calculateBitrate(settings)
+        val enableMic = settings.audioSource == "mic" || settings.audioSource == "both"
+
+        val serviceIntent = Intent(this, ScreenRecordService::class.java).apply {
+            action = ScreenRecordService.ACTION_START
+            putExtra("PROJECTION_INTENT", data)
+            putExtra("PROJECTION_RESULT_CODE", resultCode)
+            putExtra("VIDEO_WIDTH", width)
+            putExtra("VIDEO_HEIGHT", height)
+            putExtra("VIDEO_FPS", settings.fps)
+            putExtra("VIDEO_BITRATE", bitrate)
+            putExtra("ENABLE_MIC", enableMic)
+            putExtra("AUDIO_BITRATE", settings.audioBitrate)
+            putExtra("AUDIO_SAMPLE_RATE", settings.audioSampleRate)
+            putExtra("AUDIO_CHANNELS", settings.audioChannels)
+            putExtra("ENABLE_FACECAM", settings.cameraEnabled)
+            putExtra("CAMERA_SHAPE", settings.cameraShape)
+            putExtra("CAMERA_POS_X", settings.cameraPositionX)
+            putExtra("CAMERA_POS_Y", settings.cameraPositionY)
+            putExtra("CAMERA_SCALE", settings.cameraScale)
+            putExtra("CAMERA_BORDER_WIDTH", settings.cameraBorderWidth)
+            putExtra("CAMERA_BORDER_COLOR", settings.cameraBorderColor)
+            putExtra("CAMERA_MIRRORED", settings.cameraMirrored)
+            putExtra("SHOW_TOUCHES", settings.showTouches)
+        }
+
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            startForegroundService(serviceIntent)
+        } else {
+            startService(serviceIntent)
+        }
+
+        // Minimize app to capture user's active game/screen cleanly
+        moveTaskToBack(true)
+    }
+
     private val projectionLauncher = registerForActivityResult(
         ActivityResultContracts.StartActivityForResult()
     ) { result ->
         if (result.resultCode == RESULT_OK && result.data != null) {
             val settings = settingsManager.settings.value
-
-            val (width, height) = VideoResolutionHelper.getVideoDimensions(applicationContext, settings)
-
-            val bitrate = when (settings.bitrate) {
-                "low" -> 4_000_000
-                "medium" -> 8_000_000
-                "high" -> 16_000_000
-                else -> 8_000_000
-            }
-
-            val enableMic = settings.audioSource == "mic" || settings.audioSource == "both"
-
-            val serviceIntent = Intent(this, ScreenRecordService::class.java).apply {
-                action = ScreenRecordService.ACTION_START
-                putExtra("PROJECTION_INTENT", result.data)
-                putExtra("PROJECTION_RESULT_CODE", result.resultCode)
-                putExtra("VIDEO_WIDTH", width)
-                putExtra("VIDEO_HEIGHT", height)
-                putExtra("VIDEO_FPS", settings.fps)
-                putExtra("VIDEO_BITRATE", bitrate)
-                putExtra("ENABLE_MIC", enableMic)
-                putExtra("ENABLE_FACECAM", settings.cameraEnabled)
-                putExtra("CAMERA_SHAPE", settings.cameraShape)
-                putExtra("CAMERA_POS_X", settings.cameraPositionX)
-                putExtra("CAMERA_POS_Y", settings.cameraPositionY)
-                putExtra("CAMERA_SCALE", settings.cameraScale)
-                putExtra("CAMERA_BORDER_WIDTH", settings.cameraBorderWidth)
-                putExtra("CAMERA_BORDER_COLOR", settings.cameraBorderColor)
-                putExtra("CAMERA_MIRRORED", settings.cameraMirrored)
-            }
-
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                startForegroundService(serviceIntent)
+            if (settings.countdown > 0) {
+                pendingProjectionData = result.data
+                pendingResultCode = result.resultCode
+                showCountdown = true
             } else {
-                startService(serviceIntent)
+                launchScreenRecordService(result.resultCode, result.data!!)
             }
-
-            // Minimize app to capture user's active game/screen cleanly
-            moveTaskToBack(true)
         } else {
             Toast.makeText(this, "Screen capture permission was cancelled", Toast.LENGTH_SHORT).show()
         }
@@ -212,12 +263,7 @@ class MainActivity : ComponentActivity() {
     private fun handleIncomingIntent(intent: Intent?) {
         when (intent?.action) {
             "com.screenpro.ACTION_START_RECORD_FROM_FLOAT" -> {
-                val settings = settingsManager.settings.value
-                if (settings.countdown > 0) {
-                    showCountdown = true
-                } else {
-                    startProjectionCapture()
-                }
+                startProjectionCapture()
             }
             "com.screenpro.ACTION_SCREENSHOT_FROM_FLOAT" -> {
                 captureScreenshot()
@@ -246,10 +292,89 @@ class MainActivity : ComponentActivity() {
             val elapsed by elapsedSeconds.collectAsState()
             val snackbarHostState = remember { SnackbarHostState() }
 
+            // Handle system back button and gestures in full-screen mode
+            BackHandler(enabled = currentScreen != "home" || showDrawing || showCountdown) {
+                if (showDrawing) {
+                    showDrawing = false
+                } else if (showCountdown) {
+                    showCountdown = false
+                    pendingProjectionData = null
+                } else {
+                    navigateBack()
+                }
+            }
+
             ScreenProTheme(themeMode = settings.themeMode) {
                 Scaffold(
                     snackbarHost = { SnackbarHost(snackbarHostState) },
-                    containerColor = Color(0xFF0E0E0E)
+                    containerColor = Color(0xFF0E0E0E),
+                    bottomBar = {
+                        // Display bottom navigation on main screens with prominent Home shortcut
+                        if (currentScreen in listOf("home", "library", "settings")) {
+                            NavigationBar(
+                                containerColor = Color(0xFF141414),
+                                contentColor = Color.White,
+                                tonalElevation = 8.dp
+                            ) {
+                                NavigationBarItem(
+                                    selected = currentScreen == "home",
+                                    onClick = { navigateHome() },
+                                    icon = { Icon(Icons.Default.Home, contentDescription = "Home Page Shortcut") },
+                                    label = {
+                                        Text(
+                                            "Home",
+                                            fontWeight = if (currentScreen == "home") FontWeight.Bold else FontWeight.Normal
+                                        )
+                                    },
+                                    colors = NavigationBarItemDefaults.colors(
+                                        selectedIconColor = Color(0xFFFF4B2B),
+                                        selectedTextColor = Color(0xFFFF4B2B),
+                                        indicatorColor = Color(0xFFFF4B2B).copy(alpha = 0.2f),
+                                        unselectedIconColor = Color.LightGray,
+                                        unselectedTextColor = Color.LightGray
+                                    )
+                                )
+
+                                NavigationBarItem(
+                                    selected = currentScreen == "library",
+                                    onClick = { navigateTo("library") },
+                                    icon = { Icon(Icons.Default.VideoLibrary, contentDescription = "Media Library") },
+                                    label = {
+                                        Text(
+                                            "Library",
+                                            fontWeight = if (currentScreen == "library") FontWeight.Bold else FontWeight.Normal
+                                        )
+                                    },
+                                    colors = NavigationBarItemDefaults.colors(
+                                        selectedIconColor = Color(0xFFFF4B2B),
+                                        selectedTextColor = Color(0xFFFF4B2B),
+                                        indicatorColor = Color(0xFFFF4B2B).copy(alpha = 0.2f),
+                                        unselectedIconColor = Color.LightGray,
+                                        unselectedTextColor = Color.LightGray
+                                    )
+                                )
+
+                                NavigationBarItem(
+                                    selected = currentScreen == "settings",
+                                    onClick = { navigateTo("settings") },
+                                    icon = { Icon(Icons.Default.Settings, contentDescription = "Settings") },
+                                    label = {
+                                        Text(
+                                            "Settings",
+                                            fontWeight = if (currentScreen == "settings") FontWeight.Bold else FontWeight.Normal
+                                        )
+                                    },
+                                    colors = NavigationBarItemDefaults.colors(
+                                        selectedIconColor = Color(0xFFFF4B2B),
+                                        selectedTextColor = Color(0xFFFF4B2B),
+                                        indicatorColor = Color(0xFFFF4B2B).copy(alpha = 0.2f),
+                                        unselectedIconColor = Color.LightGray,
+                                        unselectedTextColor = Color.LightGray
+                                    )
+                                )
+                            }
+                        }
+                    }
                 ) { innerPadding ->
                     Box(
                         modifier = Modifier
@@ -266,11 +391,7 @@ class MainActivity : ComponentActivity() {
                                     settings = settings,
                                     recentItems = mediaItems,
                                     onStartRecordingClick = {
-                                        if (settings.countdown > 0) {
-                                            showCountdown = true
-                                        } else {
-                                            startProjectionCapture()
-                                        }
+                                        startProjectionCapture()
                                     },
                                     onStopRecordingClick = {
                                         stopRecording()
@@ -307,18 +428,18 @@ class MainActivity : ComponentActivity() {
                                         toggleFloatingBallWithPermission(!settings.floatingBallEnabled)
                                     },
                                     onNavigateLibrary = {
-                                        currentScreen = "library"
+                                        navigateTo("library")
                                     },
                                     onNavigateSettings = {
-                                        currentScreen = "settings"
+                                        navigateTo("settings")
                                     },
                                     onPlayItem = { item ->
                                         activePlayerItem = item
-                                        currentScreen = "player"
+                                        navigateTo("player")
                                     },
                                     onEditItem = { item ->
                                         activeEditorItem = item
-                                        currentScreen = "editor"
+                                        navigateTo("editor")
                                     },
                                     onShareItem = { item ->
                                         shareMedia(item)
@@ -334,11 +455,11 @@ class MainActivity : ComponentActivity() {
                                     items = mediaItems,
                                     onPlayItem = { item ->
                                         activePlayerItem = item
-                                        currentScreen = "player"
+                                        navigateTo("player")
                                     },
                                     onEditItem = { item ->
                                         activeEditorItem = item
-                                        currentScreen = "editor"
+                                        navigateTo("editor")
                                     },
                                     onShareItem = { item ->
                                         shareMedia(item)
@@ -350,7 +471,10 @@ class MainActivity : ComponentActivity() {
                                         renameMedia(item, newName)
                                     },
                                     onNavigateBack = {
-                                        currentScreen = "home"
+                                        navigateBack()
+                                    },
+                                    onNavigateHome = {
+                                        navigateHome()
                                     }
                                 )
                             }
@@ -359,7 +483,10 @@ class MainActivity : ComponentActivity() {
                                 SettingsScreen(
                                     settingsManager = settingsManager,
                                     onNavigateBack = {
-                                        currentScreen = "home"
+                                        navigateBack()
+                                    },
+                                    onNavigateHome = {
+                                        navigateHome()
                                     },
                                     onToggleFloatingBall = { enabled ->
                                         toggleFloatingBallWithPermission(enabled)
@@ -372,24 +499,25 @@ class MainActivity : ComponentActivity() {
                                     VideoPlayerScreen(
                                         item = playerItem,
                                         onClose = {
-                                            activePlayerItem = null
-                                            currentScreen = "home"
+                                            navigateBack()
+                                        },
+                                        onNavigateHome = {
+                                            navigateHome()
                                         },
                                         onOpenEditor = { itemToEdit ->
                                             activeEditorItem = itemToEdit
-                                            currentScreen = "editor"
+                                            navigateTo("editor")
                                         },
                                         onShare = { itemToShare ->
                                             shareMedia(itemToShare)
                                         },
                                         onDelete = { itemToDelete ->
                                             deleteMedia(itemToDelete)
-                                            activePlayerItem = null
-                                            currentScreen = "home"
+                                            navigateBack()
                                         }
                                     )
                                 } ?: run {
-                                    currentScreen = "home"
+                                    navigateHome()
                                 }
                             }
 
@@ -398,18 +526,20 @@ class MainActivity : ComponentActivity() {
                                     VideoEditorScreen(
                                         item = editorItem,
                                         onClose = {
-                                            activeEditorItem = null
-                                            currentScreen = "home"
+                                            navigateBack()
+                                        },
+                                        onNavigateHome = {
+                                            navigateHome()
                                         },
                                         onSaved = { savedItem ->
                                             activeEditorItem = null
                                             refreshMediaItems()
-                                            currentScreen = "library"
+                                            navigateTo("library")
                                             Toast.makeText(this@MainActivity, "Edited video saved to library", Toast.LENGTH_SHORT).show()
                                         }
                                     )
                                 } ?: run {
-                                    currentScreen = "home"
+                                    navigateHome()
                                 }
                             }
                         }
@@ -420,10 +550,14 @@ class MainActivity : ComponentActivity() {
                                 initialCount = settings.countdown,
                                 onFinished = {
                                     showCountdown = false
-                                    startProjectionCapture()
+                                    pendingProjectionData?.let { data ->
+                                        launchScreenRecordService(pendingResultCode, data)
+                                    }
+                                    pendingProjectionData = null
                                 },
                                 onDismiss = {
                                     showCountdown = false
+                                    pendingProjectionData = null
                                 }
                             )
                         }

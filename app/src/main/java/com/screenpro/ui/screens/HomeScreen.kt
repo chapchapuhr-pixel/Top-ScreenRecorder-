@@ -142,6 +142,9 @@ fun HomeScreen(
                     }
                 },
                 actions = {
+                    IconButton(onClick = onNavigateLibrary) {
+                        Icon(Icons.Default.VideoLibrary, contentDescription = "Media Library", tint = Color.White)
+                    }
                     IconButton(onClick = onNavigateSettings) {
                         Icon(Icons.Default.Settings, contentDescription = "Settings", tint = Color.White)
                     }

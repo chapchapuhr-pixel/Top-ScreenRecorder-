@@ -18,10 +18,12 @@ import android.util.DisplayMetrics
 import android.view.WindowManager
 import android.widget.Toast
 import androidx.activity.ComponentActivity
+import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
 import com.screenpro.data.SettingsManager
 import com.screenpro.recording.VideoResolutionHelper
 import com.screenpro.storage.MediaStoreRepository
+import com.screenpro.ui.components.CountdownOverlay
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -93,8 +95,25 @@ class CaptureLauncherActivity : ComponentActivity() {
                     performInstantScreenshot(result.resultCode, result.data!!)
                 }
                 else -> {
-                    startRecordingService(result.resultCode, result.data!!)
-                    finishWithNoAnimation()
+                    val settingsManager = SettingsManager(applicationContext)
+                    val settings = settingsManager.settings.value
+                    if (settings.countdown > 0) {
+                        setContent {
+                            CountdownOverlay(
+                                initialCount = settings.countdown,
+                                onFinished = {
+                                    startRecordingService(result.resultCode, result.data!!)
+                                    finishWithNoAnimation()
+                                },
+                                onDismiss = {
+                                    finishWithNoAnimation()
+                                }
+                            )
+                        }
+                    } else {
+                        startRecordingService(result.resultCode, result.data!!)
+                        finishWithNoAnimation()
+                    }
                 }
             }
         } else {
@@ -137,12 +156,7 @@ class CaptureLauncherActivity : ComponentActivity() {
 
         val (width, height) = VideoResolutionHelper.getVideoDimensions(applicationContext, settings)
 
-        val bitrate = when (settings.bitrate) {
-            "low" -> 4_000_000
-            "medium" -> 8_000_000
-            "high" -> 16_000_000
-            else -> 8_000_000
-        }
+        val bitrate = VideoResolutionHelper.calculateBitrate(settings)
 
         val enableMic = settings.audioSource == "mic" || settings.audioSource == "both"
 
@@ -155,6 +169,9 @@ class CaptureLauncherActivity : ComponentActivity() {
             putExtra("VIDEO_FPS", settings.fps)
             putExtra("VIDEO_BITRATE", bitrate)
             putExtra("ENABLE_MIC", enableMic)
+            putExtra("AUDIO_BITRATE", settings.audioBitrate)
+            putExtra("AUDIO_SAMPLE_RATE", settings.audioSampleRate)
+            putExtra("AUDIO_CHANNELS", settings.audioChannels)
             putExtra("ENABLE_FACECAM", settings.cameraEnabled)
             putExtra("CAMERA_SHAPE", settings.cameraShape)
             putExtra("CAMERA_POS_X", settings.cameraPositionX)
@@ -163,6 +180,7 @@ class CaptureLauncherActivity : ComponentActivity() {
             putExtra("CAMERA_BORDER_WIDTH", settings.cameraBorderWidth)
             putExtra("CAMERA_BORDER_COLOR", settings.cameraBorderColor)
             putExtra("CAMERA_MIRRORED", settings.cameraMirrored)
+            putExtra("SHOW_TOUCHES", settings.showTouches)
         }
 
         if (settings.cameraEnabled) {

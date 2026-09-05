@@ -1,6 +1,8 @@
 package com.screenpro.recording
 
+import android.Manifest
 import android.content.Context
+import android.content.pm.PackageManager
 import android.graphics.Bitmap
 import android.graphics.PixelFormat
 import android.hardware.display.DisplayManager
@@ -13,6 +15,7 @@ import android.os.Build
 import android.os.Handler
 import android.os.Looper
 import android.util.Log
+import androidx.core.content.ContextCompat
 import com.screenpro.recording.camera.CameraCaptureManager
 import com.screenpro.recording.compositor.ScreenCameraCompositor
 import com.screenpro.storage.MediaStoreRepository
@@ -24,7 +27,8 @@ import java.io.File
 
 /**
  * ScreenRecordingManager
- * Manages MediaRecorder, VirtualDisplay, and audio/video pipeline for screen capture.
+ * Manages MediaRecorder, VirtualDisplay, professional audio pipeline,
+ * and multi-segment pause/resume recording with instant preview, Save and Continue.
  */
 class ScreenRecordingManager(private val context: Context) {
 
@@ -33,7 +37,22 @@ class ScreenRecordingManager(private val context: Context) {
     private var mediaRecorder: MediaRecorder? = null
     private var virtualDisplay: VirtualDisplay? = null
     private var currentOutputFile: File? = null
+    private val recordedSegments = mutableListOf<File>()
     private val mediaStoreRepository = MediaStoreRepository(context)
+
+    // Cached parameters for continuous multi-segment recording ("Save and Continue")
+    private var cachedParams: RecordingParams? = null
+
+    data class RecordingParams(
+        val width: Int,
+        val height: Int,
+        val fps: Int,
+        val bitrate: Int,
+        val enableMic: Boolean,
+        val audioBitrate: Int = 192_000,
+        val audioSampleRate: Int = 48_000,
+        val audioChannels: Int = 2
+    )
 
     // Facecam compositing pipeline
     private var compositor: ScreenCameraCompositor? = null
@@ -82,8 +101,27 @@ class ScreenRecordingManager(private val context: Context) {
         cameraScale: Float = 0.26f,
         cameraBorderWidth: Int = 3,
         cameraBorderColor: String = "#FF4B2B",
-        cameraMirrored: Boolean = true
+        cameraMirrored: Boolean = true,
+        audioBitrate: Int = 192_000,
+        audioSampleRate: Int = 48_000,
+        audioChannels: Int = 2
     ) {
+        recordedSegments.clear()
+        cachedParams = RecordingParams(
+            width = width,
+            height = height,
+            fps = fps,
+            bitrate = bitrate,
+            enableMic = enableMic,
+            audioBitrate = audioBitrate,
+            audioSampleRate = audioSampleRate,
+            audioChannels = audioChannels
+        )
+
+        startRecorderInternal(cachedParams!!)
+    }
+
+    private fun startRecorderInternal(params: RecordingParams) {
         val projection = mediaProjection ?: run {
             Log.e(tag, "Cannot start recording: MediaProjection is null")
             RecordingController.setError("MediaProjection not initialized")
@@ -91,8 +129,9 @@ class ScreenRecordingManager(private val context: Context) {
         }
 
         try {
-            val outputDir = context.cacheDir
-            currentOutputFile = File(outputDir, "ScreenPro_${System.currentTimeMillis()}.mp4")
+            val outputDir = File(context.cacheDir, "screenpro_segments").apply { mkdirs() }
+            val outputFile = File(outputDir, "ScreenPro_seg_${System.currentTimeMillis()}.mp4")
+            currentOutputFile = outputFile
 
             val recorder = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
                 MediaRecorder(context)
@@ -101,35 +140,55 @@ class ScreenRecordingManager(private val context: Context) {
                 MediaRecorder()
             }
 
-            if (enableMic) {
-                recorder.setAudioSource(MediaRecorder.AudioSource.MIC)
+            val hasMicPermission = ContextCompat.checkSelfPermission(
+                context,
+                Manifest.permission.RECORD_AUDIO
+            ) == PackageManager.PERMISSION_GRANTED
+
+            var audioConfigured = false
+            if (params.enableMic && hasMicPermission) {
+                try {
+                    recorder.setAudioSource(MediaRecorder.AudioSource.MIC)
+                    audioConfigured = true
+                } catch (e: Exception) {
+                    Log.w(tag, "Microphone audio source unavailable, falling back to video only: ${e.message}")
+                }
             }
+
             recorder.setVideoSource(MediaRecorder.VideoSource.SURFACE)
             recorder.setOutputFormat(MediaRecorder.OutputFormat.MPEG_4)
 
             recorder.setVideoEncoder(MediaRecorder.VideoEncoder.H264)
-            if (enableMic) {
-                recorder.setAudioEncoder(MediaRecorder.AudioEncoder.AAC)
-                recorder.setAudioEncodingBitRate(128_000)
-                recorder.setAudioSamplingRate(44100)
+
+            if (audioConfigured) {
+                try {
+                    recorder.setAudioEncoder(MediaRecorder.AudioEncoder.AAC)
+                    recorder.setAudioEncodingBitRate(params.audioBitrate.coerceIn(64_000, 320_000))
+                    recorder.setAudioSamplingRate(params.audioSampleRate)
+                    try {
+                        recorder.setAudioChannels(params.audioChannels.coerceIn(1, 2))
+                    } catch (e: Exception) {
+                        Log.w(tag, "Stereo channels unsupported, defaulting to mono", e)
+                        recorder.setAudioChannels(1)
+                    }
+                } catch (e: Exception) {
+                    Log.w(tag, "Failed to configure high quality audio encoder: ${e.message}")
+                }
             }
 
-            // Ensure dimensions are even numbers (required by H264 encoders)
-            val encWidth = if (width % 2 == 0) width else width - 1
-            val encHeight = if (height % 2 == 0) height else height - 1
+            // Ensure dimensions are even numbers (required by H264 hardware encoders)
+            val encWidth = if (params.width % 2 == 0) params.width else params.width - 1
+            val encHeight = if (params.height % 2 == 0) params.height else params.height - 1
 
             recorder.setVideoSize(encWidth, encHeight)
-            recorder.setVideoFrameRate(fps.coerceIn(15, 60))
-            recorder.setVideoEncodingBitRate(bitrate.coerceIn(1_000_000, 30_000_000))
-            recorder.setOutputFile(currentOutputFile!!.absolutePath)
+            recorder.setVideoFrameRate(params.fps.coerceIn(15, 120))
+            recorder.setVideoEncodingBitRate(params.bitrate.coerceIn(1_000_000, 50_000_000))
+            recorder.setOutputFile(outputFile.absolutePath)
 
             recorder.prepare()
 
             val densityDpi = context.resources.displayMetrics.densityDpi
 
-            // Capture screen display directly into recorder. The on-screen FaceCam floating overlay
-            // with live CameraX preview is rendered in the window manager and captured with perfect
-            // 60fps fidelity, interactive drag movement, and real-time show/hide support.
             virtualDisplay = projection.createVirtualDisplay(
                 "ScreenProCaptureDisplay",
                 encWidth,
@@ -143,12 +202,143 @@ class ScreenRecordingManager(private val context: Context) {
 
             recorder.start()
             this.mediaRecorder = recorder
-            Log.d(tag, "Recording started successfully (facecam=$enableFaceCam): ${currentOutputFile?.name}")
+            Log.d(tag, "Recording active for segment: ${outputFile.name}")
         } catch (e: Exception) {
             Log.e(tag, "Failed to start screen recording", e)
             RecordingController.setError("Failed to start recording: ${e.localizedMessage}")
             release()
         }
+    }
+
+    /**
+     * Halts the active recorder, properly finalizes the MP4 segment (writing moov atom),
+     * and keeps MediaProjection alive so user can preview and choose to "Save" or "Continue".
+     */
+    fun holdAndPreviewSegment(onSegmentReady: (File, Uri) -> Unit) {
+        val recorder = mediaRecorder
+        val segFile = currentOutputFile
+
+        try {
+            recorder?.stop()
+            recorder?.reset()
+            recorder?.release()
+        } catch (e: Exception) {
+            Log.w(tag, "Error stopping recorder for segment: ${e.message}")
+        }
+        mediaRecorder = null
+
+        try {
+            virtualDisplay?.release()
+        } catch (_: Exception) {}
+        virtualDisplay = null
+
+        if (segFile != null && segFile.exists() && segFile.length() > 0) {
+            recordedSegments.add(segFile)
+            val uri = Uri.fromFile(segFile)
+            Log.d(tag, "Segment ready for preview: ${segFile.name} (size=${segFile.length()})")
+            RecordingController.onSegmentReady(segFile, uri)
+            onSegmentReady(segFile, uri)
+        } else {
+            Log.w(tag, "Current segment file is empty or missing")
+        }
+    }
+
+    /**
+     * Continues / resumes recording by starting the next video segment seamlessly.
+     */
+    fun continueRecordingSegment() {
+        val params = cachedParams ?: run {
+            Log.e(tag, "Cannot continue: cachedParams is null")
+            return
+        }
+        RecordingController.onRecordingResumed()
+        startRecorderInternal(params)
+    }
+
+    /**
+     * Saves all recorded segments (merging if multiple), writes to MediaStore and Room,
+     * then releases MediaProjection and completes.
+     */
+    fun saveAllSegmentsAndFinish(onComplete: (Boolean, Uri?) -> Unit) {
+        // If a segment is currently running, finalize it first
+        if (mediaRecorder != null) {
+            try {
+                mediaRecorder?.stop()
+                mediaRecorder?.reset()
+                mediaRecorder?.release()
+            } catch (e: Exception) {
+                Log.w(tag, "Error finalizing active recorder: ${e.message}")
+            }
+            mediaRecorder = null
+
+            try {
+                virtualDisplay?.release()
+            } catch (_: Exception) {}
+            virtualDisplay = null
+
+            currentOutputFile?.let {
+                if (it.exists() && it.length() > 0 && !recordedSegments.contains(it)) {
+                    recordedSegments.add(it)
+                }
+            }
+        }
+
+        val segmentsToSave = recordedSegments.filter { it.exists() && it.length() > 0 }
+        release()
+
+        CoroutineScope(Dispatchers.IO).launch {
+            var savedUri: Uri? = null
+            var success = false
+
+            if (segmentsToSave.isNotEmpty()) {
+                val fileToSave: File
+                if (segmentsToSave.size == 1) {
+                    fileToSave = segmentsToSave[0]
+                } else {
+                    val mergedFile = File(context.cacheDir, "ScreenPro_Merged_${System.currentTimeMillis()}.mp4")
+                    val merged = VideoMerger.mergeVideos(segmentsToSave, mergedFile)
+                    fileToSave = if (merged && mergedFile.exists() && mergedFile.length() > 0) {
+                        mergedFile
+                    } else {
+                        segmentsToSave.last()
+                    }
+                }
+
+                savedUri = mediaStoreRepository.saveVideoToMediaStore(fileToSave)
+                success = savedUri != null
+
+                // Clean up temporary segment files
+                for (f in segmentsToSave) {
+                    try { f.delete() } catch (_: Exception) {}
+                }
+                if (fileToSave != segmentsToSave[0]) {
+                    try { fileToSave.delete() } catch (_: Exception) {}
+                }
+            }
+
+            withContext(Dispatchers.Main) {
+                RecordingController.onRecordingStopped()
+                onComplete(success, savedUri)
+            }
+        }
+    }
+
+    fun discardRecording() {
+        try {
+            mediaRecorder?.stop()
+            mediaRecorder?.reset()
+        } catch (_: Exception) {}
+
+        release()
+
+        for (f in recordedSegments) {
+            try { f.delete() } catch (_: Exception) {}
+        }
+        recordedSegments.clear()
+        currentOutputFile?.let {
+            try { it.delete() } catch (_: Exception) {}
+        }
+        RecordingController.onRecordingStopped()
     }
 
     fun pauseRecording() {
@@ -174,34 +364,7 @@ class ScreenRecordingManager(private val context: Context) {
     }
 
     fun stopRecording(onComplete: (Boolean, Uri?) -> Unit) {
-        val recorder = mediaRecorder
-        val tempFile = currentOutputFile
-
-        try {
-            recorder?.stop()
-            recorder?.reset()
-        } catch (e: Exception) {
-            Log.e(tag, "Error stopping MediaRecorder: ${e.message}")
-        }
-
-        release()
-
-        CoroutineScope(Dispatchers.IO).launch {
-            var savedUri: Uri? = null
-            var success = false
-
-            if (tempFile != null && tempFile.exists() && tempFile.length() > 0) {
-                savedUri = mediaStoreRepository.saveVideoToMediaStore(tempFile)
-                success = savedUri != null
-                try {
-                    tempFile.delete()
-                } catch (_: Exception) {}
-            }
-
-            withContext(Dispatchers.Main) {
-                onComplete(success, savedUri)
-            }
-        }
+        saveAllSegmentsAndFinish(onComplete)
     }
 
     fun takeScreenshot() {

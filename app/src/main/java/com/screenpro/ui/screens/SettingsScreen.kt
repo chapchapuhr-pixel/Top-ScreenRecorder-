@@ -1,8 +1,12 @@
 package com.screenpro.ui.screens
 
+import androidx.activity.compose.BackHandler
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectDragGestures
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
@@ -15,26 +19,50 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.screenpro.data.SettingsManager
 import com.screenpro.data.model.AppSettings
+import com.screenpro.recording.TouchVisualizerHelper
+import com.screenpro.recording.VideoResolutionHelper
+import com.screenpro.ui.components.CountdownOverlay
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun SettingsScreen(
     settingsManager: SettingsManager,
     onNavigateBack: () -> Unit,
+    onNavigateHome: () -> Unit = onNavigateBack,
     onToggleFloatingBall: (Boolean) -> Unit = {}
 ) {
     val settings by settingsManager.settings.collectAsState()
+    val context = LocalContext.current
 
     var activeSubtab by remember { mutableStateOf("recording") }
     var showPrivacyModal by remember { mutableStateOf(false) }
     var showLicensesModal by remember { mutableStateOf(false) }
+    var previewCountdown by remember { mutableStateOf(false) }
+    var sandboxTouches by remember { mutableStateOf(listOf<Offset>()) }
+    var writeSettingsGranted by remember { mutableStateOf(TouchVisualizerHelper.canWriteSystemSettings(context)) }
+
+    // Fullscreen in-app back handling
+    BackHandler {
+        if (previewCountdown) {
+            previewCountdown = false
+        } else if (showPrivacyModal) {
+            showPrivacyModal = false
+        } else if (showLicensesModal) {
+            showLicensesModal = false
+        } else {
+            onNavigateBack()
+        }
+    }
 
     val subtabs = listOf(
         "recording" to "Recording",
@@ -59,6 +87,11 @@ fun SettingsScreen(
                 navigationIcon = {
                     IconButton(onClick = onNavigateBack) {
                         Icon(Icons.Default.ArrowBack, contentDescription = "Back", tint = Color.White)
+                    }
+                },
+                actions = {
+                    IconButton(onClick = onNavigateHome) {
+                        Icon(Icons.Default.Home, contentDescription = "Home Page Shortcut", tint = Color.White)
                     }
                 },
                 colors = TopAppBarDefaults.topAppBarColors(
@@ -106,29 +139,58 @@ fun SettingsScreen(
                 when (activeSubtab) {
                     "recording" -> {
                         SettingsCard(title = "Video Size & Aspect Ratio") {
+                            val activeDimensions = VideoResolutionHelper.getVideoDimensions(context, settings)
+                            val calculatedBitrate = VideoResolutionHelper.calculateBitrate(settings)
+
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clip(RoundedCornerShape(8.dp))
+                                    .background(Color(0xFF202020))
+                                    .padding(12.dp)
+                            ) {
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Column {
+                                        Text("Active Recording Dimension", color = Color.Gray, fontSize = 11.sp)
+                                        Text("${activeDimensions.first} × ${activeDimensions.second} px", color = Color(0xFFFF4B2B), fontWeight = FontWeight.Bold, fontSize = 15.sp)
+                                    }
+                                    Column(horizontalAlignment = Alignment.End) {
+                                        Text("Estimated Bitrate", color = Color.Gray, fontSize = 11.sp)
+                                        Text("${calculatedBitrate / 1_000_000} Mbps @ ${settings.fps} FPS", color = Color.White, fontWeight = FontWeight.SemiBold, fontSize = 13.sp)
+                                    }
+                                }
+                            }
+
+                            Spacer(modifier = Modifier.height(6.dp))
+
                             Text(
-                                "Choose recording dimensions. Fullscreen covers the entire screen without borders, or choose YouTube/Social presets.",
+                                "Choose recording dimensions. Fullscreen covers the entire screen edge-to-edge without black borders, or select YouTube and social presets.",
                                 color = Color.Gray,
                                 fontSize = 12.sp
                             )
                             Spacer(modifier = Modifier.height(4.dp))
                             val presets = listOf(
-                                "fullscreen" to ("Fullscreen (No Borders)" to "Matches full phone screen edge-to-edge"),
-                                "youtube" to ("YouTube 16:9 (Landscape)" to "Standard widescreen video for YouTube uploads"),
-                                "social" to ("Social 9:16 (TikTok/Shorts/Reels)" to "Vertical format for Reels, TikTok and Shorts"),
-                                "square" to ("Square 1:1 (Instagram/Feed)" to "Square aspect ratio for posts and feeds"),
-                                "cinema" to ("Cinema 21:9 (Ultrawide)" to "Ultrawide cinematic video format"),
-                                "tablet" to ("Tablet / Classic 4:3" to "Standard 4:3 presentation ratio")
+                                "fullscreen" to ("Fullscreen (Native Display)" to "Matches full phone screen edge-to-edge without letterboxing"),
+                                "youtube" to ("YouTube 16:9 (Landscape)" to "Standard 16:9 widescreen video optimized for YouTube"),
+                                "social" to ("Social 9:16 (TikTok / Shorts / Reels)" to "Vertical 9:16 mobile format for Reels, TikTok and Shorts"),
+                                "square" to ("Square 1:1 (Instagram Feed)" to "Balanced 1:1 square aspect ratio for feeds & carousels"),
+                                "cinema" to ("Cinema 21:9 (Ultrawide)" to "Ultrawide 21:9 cinematic video format for gaming & movies"),
+                                "tablet" to ("Tablet / Classic 4:3" to "Standard 4:3 presentation and tablet aspect ratio")
                             )
                             presets.forEach { (presetKey, pair) ->
                                 val (title, desc) = pair
                                 Row(
                                     modifier = Modifier
                                         .fillMaxWidth()
+                                        .clip(RoundedCornerShape(8.dp))
                                         .clickable {
                                             settingsManager.updateSettings(settings.copy(videoSizePreset = presetKey))
                                         }
-                                        .padding(vertical = 6.dp),
+                                        .padding(vertical = 6.dp, horizontal = 4.dp),
                                     verticalAlignment = Alignment.CenterVertically
                                 ) {
                                     RadioButton(
@@ -148,16 +210,22 @@ fun SettingsScreen(
                         }
 
                         SettingsCard(title = "Video Resolution") {
-                            val resolutions = listOf("480p", "720p", "1080p", "1440p", "4k")
+                            val resolutions = listOf(
+                                "480p" to "480p SD",
+                                "720p" to "720p HD",
+                                "1080p" to "1080p FHD",
+                                "1440p" to "1440p 2K",
+                                "4k" to "4K UHD"
+                            )
                             Row(
                                 modifier = Modifier.fillMaxWidth(),
                                 horizontalArrangement = Arrangement.spacedBy(8.dp)
                             ) {
-                                resolutions.forEach { res ->
+                                resolutions.forEach { (resKey, label) ->
                                     FilterChip(
-                                        selected = settings.resolution == res,
-                                        onClick = { settingsManager.updateSettings(settings.copy(resolution = res)) },
-                                        label = { Text(res.uppercase()) },
+                                        selected = settings.resolution == resKey,
+                                        onClick = { settingsManager.updateSettings(settings.copy(resolution = resKey)) },
+                                        label = { Text(label, fontSize = 11.sp) },
                                         colors = FilterChipDefaults.filterChipColors(
                                             selectedContainerColor = Color(0xFFFF4B2B),
                                             selectedLabelColor = Color.White
@@ -168,13 +236,20 @@ fun SettingsScreen(
                         }
 
                         SettingsCard(title = "Frame Rate (FPS)") {
-                            val fpsList = listOf(24 to "24 FPS Cinema", 30 to "30 FPS Standard", 60 to "60 FPS Ultra")
+                            val fpsList = listOf(
+                                24 to "24 FPS — Cinema (Filmic motion)",
+                                30 to "30 FPS — Standard (Battery saver)",
+                                60 to "60 FPS — Ultra Smooth (Standard recommended)",
+                                90 to "90 FPS — High Refresh Gaming",
+                                120 to "120 FPS — Pro eSports (Maximum fidelity)"
+                            )
                             fpsList.forEach { (fps, desc) ->
                                 Row(
                                     modifier = Modifier
                                         .fillMaxWidth()
+                                        .clip(RoundedCornerShape(8.dp))
                                         .clickable { settingsManager.updateSettings(settings.copy(fps = fps)) }
-                                        .padding(vertical = 8.dp),
+                                        .padding(vertical = 6.dp),
                                     verticalAlignment = Alignment.CenterVertically
                                 ) {
                                     RadioButton(
@@ -183,19 +258,28 @@ fun SettingsScreen(
                                         colors = RadioButtonDefaults.colors(selectedColor = Color(0xFFFF4B2B))
                                     )
                                     Spacer(modifier = Modifier.width(8.dp))
-                                    Text(text = desc, color = Color.White)
+                                    Text(text = desc, color = Color.White, fontSize = 13.sp)
                                 }
                             }
                         }
 
                         SettingsCard(title = "Video Bitrate") {
-                            val bitrates = listOf("auto" to "Auto Bitrate", "low" to "Low (4 Mbps)", "medium" to "Medium (8 Mbps)", "high" to "High (16 Mbps)")
-                            bitrates.forEach { (b, desc) ->
+                            val bitrates = listOf(
+                                "auto" to ("Auto Bitrate (Smart Adaptive)" to "Calibrated dynamically based on active resolution & FPS"),
+                                "low" to ("Low (4 Mbps)" to "Smallest file size, fast sharing"),
+                                "medium" to ("Medium (8 Mbps)" to "Balanced clarity and storage efficiency"),
+                                "high" to ("High (16 Mbps)" to "Crisp details for high-motion gameplay"),
+                                "ultra" to ("Ultra (24 Mbps)" to "High detail for 1440p and complex action"),
+                                "studio" to ("Studio (35 Mbps)" to "Master quality for 4K video editing")
+                            )
+                            bitrates.forEach { (b, pair) ->
+                                val (title, desc) = pair
                                 Row(
                                     modifier = Modifier
                                         .fillMaxWidth()
+                                        .clip(RoundedCornerShape(8.dp))
                                         .clickable { settingsManager.updateSettings(settings.copy(bitrate = b)) }
-                                        .padding(vertical = 8.dp),
+                                        .padding(vertical = 6.dp),
                                     verticalAlignment = Alignment.CenterVertically
                                 ) {
                                     RadioButton(
@@ -204,7 +288,10 @@ fun SettingsScreen(
                                         colors = RadioButtonDefaults.colors(selectedColor = Color(0xFFFF4B2B))
                                     )
                                     Spacer(modifier = Modifier.width(8.dp))
-                                    Text(text = desc, color = Color.White)
+                                    Column {
+                                        Text(text = title, color = Color.White, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+                                        Text(text = desc, color = Color.Gray, fontSize = 11.sp)
+                                    }
                                 }
                             }
                         }
@@ -227,6 +314,19 @@ fun SettingsScreen(
                                     )
                                 }
                             }
+
+                            Spacer(modifier = Modifier.height(4.dp))
+
+                            OutlinedButton(
+                                onClick = { previewCountdown = true },
+                                modifier = Modifier.fillMaxWidth(),
+                                colors = ButtonDefaults.outlinedButtonColors(contentColor = Color.White),
+                                border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFF444444))
+                            ) {
+                                Icon(Icons.Default.PlayArrow, contentDescription = null, modifier = Modifier.size(16.dp), tint = Color(0xFFFF4B2B))
+                                Spacer(modifier = Modifier.width(8.dp))
+                                Text("Test Countdown Overlay Animation", fontSize = 12.sp)
+                            }
                         }
 
                         SettingsCard(title = "Touch Visualizer") {
@@ -236,14 +336,133 @@ fun SettingsScreen(
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
                                 Column(modifier = Modifier.weight(1f)) {
-                                    Text("Show Touches On Screen", color = Color.White)
+                                    Text("Show Touches On Screen", color = Color.White, fontWeight = FontWeight.SemiBold)
                                     Text("Renders a white visual ripple circle where tapped", color = Color.Gray, fontSize = 12.sp)
                                 }
                                 Switch(
                                     checked = settings.showTouches,
-                                    onCheckedChange = { settingsManager.updateSettings(settings.copy(showTouches = it)) },
+                                    onCheckedChange = { 
+                                        settingsManager.updateSettings(settings.copy(showTouches = it))
+                                        writeSettingsGranted = TouchVisualizerHelper.canWriteSystemSettings(context)
+                                    },
                                     colors = SwitchDefaults.colors(checkedThumbColor = Color.White, checkedTrackColor = Color(0xFFFF4B2B))
                                 )
+                            }
+
+                            if (settings.showTouches) {
+                                Spacer(modifier = Modifier.height(6.dp))
+                                if (writeSettingsGranted) {
+                                    Box(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .clip(RoundedCornerShape(8.dp))
+                                            .background(Color(0xFF1B3820))
+                                            .padding(10.dp)
+                                    ) {
+                                        Row(verticalAlignment = Alignment.CenterVertically) {
+                                            Icon(Icons.Default.CheckCircle, contentDescription = null, tint = Color(0xFF4CAF50), modifier = Modifier.size(18.dp))
+                                            Spacer(modifier = Modifier.width(8.dp))
+                                            Text(
+                                                "Android System Touches Active — White touch circles appear system-wide across all apps and games while recording.",
+                                                color = Color(0xFFA5D6A7),
+                                                fontSize = 11.sp
+                                            )
+                                        }
+                                    }
+                                } else {
+                                    Box(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .clip(RoundedCornerShape(8.dp))
+                                            .background(Color(0xFF382E1B))
+                                            .padding(10.dp)
+                                    ) {
+                                        Column {
+                                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                                Icon(Icons.Default.Warning, contentDescription = null, tint = Color(0xFFFFC107), modifier = Modifier.size(18.dp))
+                                                Spacer(modifier = Modifier.width(8.dp))
+                                                Text(
+                                                    "Permission Required for System-Wide Touches",
+                                                    color = Color(0xFFFFE082),
+                                                    fontWeight = FontWeight.SemiBold,
+                                                    fontSize = 12.sp
+                                                )
+                                            }
+                                            Spacer(modifier = Modifier.height(4.dp))
+                                            Text(
+                                                "Android requires 'Modify System Settings' permission so ScreenPro can toggle native touch circles during recordings.",
+                                                color = Color(0xFFFFD54F),
+                                                fontSize = 11.sp
+                                            )
+                                            Spacer(modifier = Modifier.height(8.dp))
+                                            Button(
+                                                onClick = {
+                                                    TouchVisualizerHelper.openWriteSettingsPermission(context)
+                                                },
+                                                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFFF9800), contentColor = Color.Black),
+                                                contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp)
+                                            ) {
+                                                Text("Grant System Permission", fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                                            }
+                                        }
+                                    }
+                                }
+
+                                Spacer(modifier = Modifier.height(8.dp))
+
+                                // Touch Visualizer Sandbox
+                                Text("Touch Sandbox (Tap or Drag Below):", color = Color.Gray, fontSize = 11.sp)
+                                Box(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .height(90.dp)
+                                        .clip(RoundedCornerShape(8.dp))
+                                        .background(Color(0xFF1E1E1E))
+                                        .border(1.dp, Color(0xFF333333), RoundedCornerShape(8.dp))
+                                        .pointerInput(Unit) {
+                                            detectTapGestures(
+                                                onPress = { offset ->
+                                                    sandboxTouches = listOf(offset)
+                                                }
+                                            )
+                                        }
+                                        .pointerInput(Unit) {
+                                            detectDragGestures { change, _ ->
+                                                sandboxTouches = listOf(change.position)
+                                            }
+                                        }
+                                ) {
+                                    if (sandboxTouches.isEmpty()) {
+                                        Text(
+                                            "Tap or drag here to test touch ripples",
+                                            color = Color(0xFF555555),
+                                            fontSize = 12.sp,
+                                            modifier = Modifier.align(Alignment.Center)
+                                        )
+                                    }
+                                    Canvas(modifier = Modifier.fillMaxSize()) {
+                                        sandboxTouches.forEach { pt ->
+                                            // Outer ripple ring
+                                            drawCircle(
+                                                color = Color.White.copy(alpha = 0.25f),
+                                                radius = 32.dp.toPx(),
+                                                center = pt
+                                            )
+                                            // Mid ring
+                                            drawCircle(
+                                                color = Color.White.copy(alpha = 0.5f),
+                                                radius = 20.dp.toPx(),
+                                                center = pt
+                                            )
+                                            // Core dot
+                                            drawCircle(
+                                                color = Color.White,
+                                                radius = 10.dp.toPx(),
+                                                center = pt
+                                            )
+                                        }
+                                    }
+                                }
                             }
                         }
 
@@ -391,6 +610,88 @@ fun SettingsScreen(
                                     onCheckedChange = { settingsManager.updateSettings(settings.copy(noiseSuppression = it)) },
                                     colors = SwitchDefaults.colors(checkedThumbColor = Color.White, checkedTrackColor = Color(0xFFFF4B2B))
                                 )
+                            }
+                        }
+
+                        SettingsCard(title = "Audio Encoding Bitrate") {
+                            Text(
+                                "Higher bitrates produce crystal-clear voice and in-game audio without compression artifacts.",
+                                color = Color.Gray,
+                                fontSize = 12.sp
+                            )
+                            Spacer(modifier = Modifier.height(8.dp))
+                            val bitrateOptions = listOf(
+                                128_000 to "128 kbps (Standard)",
+                                192_000 to "192 kbps (High Fidelity)",
+                                256_000 to "256 kbps (Studio Quality)",
+                                320_000 to "320 kbps (Pro Master)"
+                            )
+                            bitrateOptions.forEach { (rate, label) ->
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .clickable {
+                                            settingsManager.updateSettings(settings.copy(audioBitrate = rate))
+                                        }
+                                        .padding(vertical = 6.dp),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    RadioButton(
+                                        selected = settings.audioBitrate == rate,
+                                        onClick = {
+                                            settingsManager.updateSettings(settings.copy(audioBitrate = rate))
+                                        },
+                                        colors = RadioButtonDefaults.colors(selectedColor = Color(0xFFFF4B2B))
+                                    )
+                                    Spacer(modifier = Modifier.width(8.dp))
+                                    Text(label, color = Color.White, fontSize = 13.sp)
+                                }
+                            }
+                        }
+
+                        SettingsCard(title = "Sample Rate & Stereo Channels") {
+                            Text("Sample Rate", color = Color.White, fontWeight = FontWeight.SemiBold, fontSize = 13.sp)
+                            Spacer(modifier = Modifier.height(6.dp))
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                listOf(44_100 to "44.1 kHz", 48_000 to "48 kHz (Pro)", 96_000 to "96 kHz").forEach { (sr, label) ->
+                                    FilterChip(
+                                        selected = settings.audioSampleRate == sr,
+                                        onClick = {
+                                            settingsManager.updateSettings(settings.copy(audioSampleRate = sr))
+                                        },
+                                        label = { Text(label) },
+                                        colors = FilterChipDefaults.filterChipColors(
+                                            selectedContainerColor = Color(0xFFFF4B2B),
+                                            selectedLabelColor = Color.White
+                                        )
+                                    )
+                                }
+                            }
+
+                            Divider(color = Color(0xFF2E2E2E), modifier = Modifier.padding(vertical = 10.dp))
+
+                            Text("Audio Channels", color = Color.White, fontWeight = FontWeight.SemiBold, fontSize = 13.sp)
+                            Spacer(modifier = Modifier.height(6.dp))
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                listOf(2 to "Stereo (2 Channels)", 1 to "Mono (1 Channel)").forEach { (ch, label) ->
+                                    FilterChip(
+                                        selected = settings.audioChannels == ch,
+                                        onClick = {
+                                            settingsManager.updateSettings(settings.copy(audioChannels = ch))
+                                        },
+                                        label = { Text(label) },
+                                        colors = FilterChipDefaults.filterChipColors(
+                                            selectedContainerColor = Color(0xFFFF4B2B),
+                                            selectedLabelColor = Color.White
+                                        )
+                                    )
+                                }
                             }
                         }
 
@@ -803,6 +1104,14 @@ fun SettingsScreen(
                 }
             },
             containerColor = Color(0xFF1E1E1E)
+        )
+    }
+
+    if (previewCountdown) {
+        CountdownOverlay(
+            initialCount = if (settings.countdown > 0) settings.countdown else 3,
+            onFinished = { previewCountdown = false },
+            onDismiss = { previewCountdown = false }
         )
     }
 }

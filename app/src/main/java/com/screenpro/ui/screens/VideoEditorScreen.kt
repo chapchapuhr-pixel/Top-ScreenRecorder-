@@ -1,6 +1,7 @@
 package com.screenpro.ui.screens
 
 import android.content.Context
+import androidx.activity.compose.BackHandler
 import androidx.annotation.OptIn
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -43,11 +44,17 @@ import java.io.FileOutputStream
 fun VideoEditorScreen(
     item: AppMediaItem,
     onClose: () -> Unit,
+    onNavigateHome: () -> Unit = onClose,
     onSaved: (AppMediaItem) -> Unit
 ) {
     val context = LocalContext.current
     val coroutineScope = rememberCoroutineScope()
     val mediaStoreRepo = remember { MediaStoreRepository(context) }
+
+    // Intercept back in editor
+    BackHandler(enabled = true) {
+        onClose()
+    }
 
     val exoPlayer = remember {
         ExoPlayer.Builder(context).build().apply {
@@ -68,6 +75,9 @@ fun VideoEditorScreen(
     var trimEndSec by remember { mutableFloatStateOf(item.duration.coerceAtLeast(3).toFloat()) }
     var rotationAngle by remember { mutableFloatStateOf(0f) } // 0, 90, 180, 270
     var cropRatio by remember { mutableStateOf("free") }
+    var isCropApplied by remember { mutableStateOf(false) }
+    var cropRectScaleX by remember { mutableFloatStateOf(1f) }
+    var cropRectScaleY by remember { mutableFloatStateOf(1f) }
     var playbackSpeed by remember { mutableFloatStateOf(1f) }
 
     // Text Overlay
@@ -137,7 +147,8 @@ fun VideoEditorScreen(
                     }
                 }
 
-                val newTitle = "${item.title}_Edited"
+                val cropSuffix = if (isCropApplied) "_Crop_${cropRatio.replace(":", "-")}" else ""
+                val newTitle = "${item.title}_Edited$cropSuffix"
                 val savedUri = mediaStoreRepo.saveVideoToMediaStore(tempFile, newTitle)
 
                 isExporting = false
@@ -174,9 +185,12 @@ fun VideoEditorScreen(
                 ) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         IconButton(onClick = onClose) {
-                            Icon(Icons.Default.Close, contentDescription = "Close", tint = Color.White)
+                            Icon(Icons.Default.ArrowBack, contentDescription = "Back", tint = Color.White)
                         }
-                        Spacer(modifier = Modifier.width(8.dp))
+                        IconButton(onClick = onNavigateHome) {
+                            Icon(Icons.Default.Home, contentDescription = "Home Page Shortcut", tint = Color.White)
+                        }
+                        Spacer(modifier = Modifier.width(4.dp))
                         Text(
                             text = "Video Editor",
                             style = MaterialTheme.typography.titleMedium,
@@ -205,6 +219,18 @@ fun VideoEditorScreen(
                 .padding(padding)
         ) {
             // Preview Surface Area
+            val cropAspectRatio = if (isCropApplied) {
+                when (cropRatio) {
+                    "1:1" -> 1f
+                    "9:16" -> 9f / 16f
+                    "16:9" -> 16f / 9f
+                    "4:3" -> 4f / 3f
+                    "3:4" -> 3f / 4f
+                    "21:9" -> 21f / 9f
+                    else -> null
+                }
+            } else null
+
             Box(
                 modifier = Modifier
                     .weight(1f)
@@ -215,6 +241,14 @@ fun VideoEditorScreen(
                 Box(
                     modifier = Modifier
                         .fillMaxSize()
+                        .then(
+                            if (cropAspectRatio != null) {
+                                Modifier
+                                    .aspectRatio(cropAspectRatio)
+                                    .clip(RoundedCornerShape(8.dp))
+                                    .border(1.5.dp, Color(0xFFFF4B2B), RoundedCornerShape(8.dp))
+                            } else Modifier
+                        )
                         .graphicsLayer {
                             rotationZ = rotationAngle
                         },
@@ -229,6 +263,79 @@ fun VideoEditorScreen(
                         },
                         modifier = Modifier.fillMaxSize()
                     )
+                }
+
+                // Interactive Crop Guide & Grid Overlay when Crop Tab is open
+                if (selectedTab == "crop") {
+                    val guideAspectRatio = when (cropRatio) {
+                        "1:1" -> 1f
+                        "9:16" -> 9f / 16f
+                        "16:9" -> 16f / 9f
+                        "4:3" -> 4f / 3f
+                        "3:4" -> 3f / 4f
+                        "21:9" -> 21f / 9f
+                        else -> null
+                    }
+
+                    Box(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .background(Color.Black.copy(alpha = 0.45f)),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth(0.9f)
+                                .then(
+                                    if (guideAspectRatio != null) {
+                                        Modifier.aspectRatio(guideAspectRatio)
+                                    } else {
+                                        Modifier.height(300.dp)
+                                    }
+                                )
+                                .border(2.dp, Color.White, RoundedCornerShape(4.dp))
+                        ) {
+                            // Rule of thirds vertical lines
+                            Row(modifier = Modifier.fillMaxSize()) {
+                                Spacer(modifier = Modifier.weight(1f))
+                                Box(modifier = Modifier.width(1.dp).fillMaxHeight().background(Color.White.copy(alpha = 0.35f)))
+                                Spacer(modifier = Modifier.weight(1f))
+                                Box(modifier = Modifier.width(1.dp).fillMaxHeight().background(Color.White.copy(alpha = 0.35f)))
+                                Spacer(modifier = Modifier.weight(1f))
+                            }
+                            // Rule of thirds horizontal lines
+                            Column(modifier = Modifier.fillMaxSize()) {
+                                Spacer(modifier = Modifier.weight(1f))
+                                Box(modifier = Modifier.height(1.dp).fillMaxWidth().background(Color.White.copy(alpha = 0.35f)))
+                                Spacer(modifier = Modifier.weight(1f))
+                                Box(modifier = Modifier.height(1.dp).fillMaxWidth().background(Color.White.copy(alpha = 0.35f)))
+                                Spacer(modifier = Modifier.weight(1f))
+                            }
+
+                            // 4 Corner brackets for pro framing feel
+                            Box(modifier = Modifier.align(Alignment.TopStart).size(16.dp).border(3.dp, Color(0xFFFF4B2B)))
+                            Box(modifier = Modifier.align(Alignment.TopEnd).size(16.dp).border(3.dp, Color(0xFFFF4B2B)))
+                            Box(modifier = Modifier.align(Alignment.BottomStart).size(16.dp).border(3.dp, Color(0xFFFF4B2B)))
+                            Box(modifier = Modifier.align(Alignment.BottomEnd).size(16.dp).border(3.dp, Color(0xFFFF4B2B)))
+
+                            // Badge displaying active crop format
+                            Surface(
+                                shape = RoundedCornerShape(12.dp),
+                                color = Color(0xCC000000),
+                                modifier = Modifier
+                                    .align(Alignment.Center)
+                                    .padding(8.dp)
+                            ) {
+                                Text(
+                                    text = if (cropRatio == "free") "FREEFORM CROP" else "CROP RATIO: ${cropRatio.uppercase()}",
+                                    color = Color.White,
+                                    fontSize = 11.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp)
+                                )
+                            }
+                        }
+                    }
                 }
 
                 // Render Text Overlays
@@ -386,22 +493,68 @@ fun VideoEditorScreen(
                     }
 
                     "crop" -> {
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .horizontalScroll(rememberScrollState()),
-                            horizontalArrangement = Arrangement.spacedBy(10.dp)
-                        ) {
-                            listOf("free", "1:1", "4:3", "16:9", "9:16").forEach { ratio ->
-                                FilterChip(
-                                    selected = cropRatio == ratio,
-                                    onClick = { cropRatio = ratio },
-                                    label = { Text(ratio.uppercase()) },
-                                    colors = FilterChipDefaults.filterChipColors(
-                                        selectedContainerColor = Color(0xFFFF4B2B),
-                                        selectedLabelColor = Color.White
-                                    )
+                        Column(modifier = Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .horizontalScroll(rememberScrollState()),
+                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                val cropPresets = listOf(
+                                    "free" to "Freeform",
+                                    "1:1" to "1:1 (Square)",
+                                    "9:16" to "9:16 (Shorts/Reels)",
+                                    "16:9" to "16:9 (YouTube)",
+                                    "4:3" to "4:3 (Tablet)",
+                                    "3:4" to "3:4 (Portrait)",
+                                    "21:9" to "21:9 (Cinema)"
                                 )
+                                cropPresets.forEach { (ratio, label) ->
+                                    FilterChip(
+                                        selected = cropRatio == ratio,
+                                        onClick = {
+                                            cropRatio = ratio
+                                            isCropApplied = true
+                                        },
+                                        label = { Text(label) },
+                                        colors = FilterChipDefaults.filterChipColors(
+                                            selectedContainerColor = Color(0xFFFF4B2B),
+                                            selectedLabelColor = Color.White
+                                        )
+                                    )
+                                }
+                            }
+
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.spacedBy(12.dp)
+                            ) {
+                                Button(
+                                    onClick = {
+                                        isCropApplied = true
+                                    },
+                                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFFF4B2B)),
+                                    modifier = Modifier.weight(1f),
+                                    shape = RoundedCornerShape(12.dp)
+                                ) {
+                                    Icon(Icons.Default.Crop, contentDescription = null, modifier = Modifier.size(16.dp))
+                                    Spacer(modifier = Modifier.width(6.dp))
+                                    Text("Apply Crop")
+                                }
+
+                                OutlinedButton(
+                                    onClick = {
+                                        cropRatio = "free"
+                                        isCropApplied = false
+                                    },
+                                    modifier = Modifier.weight(1f),
+                                    shape = RoundedCornerShape(12.dp),
+                                    border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFF424242))
+                                ) {
+                                    Icon(Icons.Default.Refresh, contentDescription = null, modifier = Modifier.size(16.dp), tint = Color.LightGray)
+                                    Spacer(modifier = Modifier.width(6.dp))
+                                    Text("Reset Full", color = Color.LightGray)
+                                }
                             }
                         }
                     }

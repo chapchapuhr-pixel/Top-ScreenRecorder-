@@ -35,9 +35,12 @@ class SettingsManager(context: Context) {
             cameraBorderColor = prefs.getString("cameraBorderColor", "#FF4B2B") ?: "#FF4B2B",
             cameraMirrored = prefs.getBoolean("cameraMirrored", true),
             floatingBallEnabled = prefs.getBoolean("floatingBallEnabled", true),
-            hideFloatingBallDuringRecording = prefs.getBoolean("hideFloatingBallDuringRecording", true),
+            hideFloatingBallDuringRecording = prefs.getBoolean("hideFloatingBallDuringRecording", false),
             hidePhoneControls = prefs.getBoolean("hidePhoneControls", true),
             shakeToStop = prefs.getBoolean("shakeToStop", true),
+            audioBitrate = prefs.getInt("audioBitrate", 192_000),
+            audioSampleRate = prefs.getInt("audioSampleRate", 48_000),
+            audioChannels = prefs.getInt("audioChannels", 2),
             videoSizePreset = prefs.getString("videoSizePreset", "fullscreen") ?: "fullscreen",
             filenamePrefix = prefs.getString("filenamePrefix", "ScreenPro_") ?: "ScreenPro_",
             preserveSource = prefs.getBoolean("preserveSource", true),
@@ -69,6 +72,9 @@ class SettingsManager(context: Context) {
             putBoolean("hideFloatingBallDuringRecording", newSettings.hideFloatingBallDuringRecording)
             putBoolean("hidePhoneControls", newSettings.hidePhoneControls)
             putBoolean("shakeToStop", newSettings.shakeToStop)
+            putInt("audioBitrate", newSettings.audioBitrate)
+            putInt("audioSampleRate", newSettings.audioSampleRate)
+            putInt("audioChannels", newSettings.audioChannels)
             putString("videoSizePreset", newSettings.videoSizePreset)
             putString("filenamePrefix", newSettings.filenamePrefix)
             putBoolean("preserveSource", newSettings.preserveSource)

@@ -56,6 +56,14 @@ import androidx.savedstate.*
 import androidx.core.content.ContextCompat
 import android.Manifest
 import android.content.pm.PackageManager
+import android.net.Uri
+import android.widget.Toast
+import androidx.compose.ui.viewinterop.AndroidView
+import androidx.media3.common.MediaItem
+import androidx.media3.common.Player
+import androidx.media3.exoplayer.ExoPlayer
+import androidx.media3.ui.PlayerView
+import java.io.File
 import com.screenpro.MainActivity
 import com.screenpro.R
 import com.screenpro.data.SettingsManager
@@ -233,6 +241,9 @@ class FloatingBallService : Service() {
                 val isRecording by RecordingController.isRecording.collectAsState()
                 val isPaused by RecordingController.isPaused.collectAsState()
                 val elapsedSeconds by RecordingController.elapsedSeconds.collectAsState()
+                val isFloatingPreviewVisible by RecordingController.isFloatingPreviewVisible.collectAsState()
+                val previewSegmentFile by RecordingController.latestRecordedSegmentFile.collectAsState()
+                val previewSegmentUri by RecordingController.latestRecordedSegmentUri.collectAsState()
                 val settings by settingsManager.settings.collectAsState()
                 val expanded by isMenuExpanded
 
@@ -240,6 +251,9 @@ class FloatingBallService : Service() {
                     isExpanded = expanded,
                     isRecording = isRecording,
                     isPaused = isPaused,
+                    isFloatingPreviewVisible = isFloatingPreviewVisible,
+                    previewSegmentFile = previewSegmentFile,
+                    previewSegmentUri = previewSegmentUri,
                     hideWhileRecording = settings.hideFloatingBallDuringRecording,
                     durationSeconds = elapsedSeconds,
                     isFaceCamActive = settings.cameraEnabled,
@@ -249,17 +263,77 @@ class FloatingBallService : Service() {
                     currentX = ballPosX,
                     currentY = ballPosY,
                     onBallTapped = {
-                        isMenuExpanded.value = true
-                        updateWindowForMenuState(true)
+                        if (isRecording) {
+                            // Immediately stop active recording segment and show Floating Preview with Save & Continue
+                            val holdIntent = Intent(applicationContext, ScreenRecordService::class.java).apply {
+                                action = ScreenRecordService.ACTION_HOLD_AND_PREVIEW
+                            }
+                            startService(holdIntent)
+                            RecordingController.showFloatingPreview()
+                            updateWindowForMenuState(true)
+                        } else {
+                            isMenuExpanded.value = true
+                            updateWindowForMenuState(true)
+                        }
                     },
                     onMenuClosed = {
                         isMenuExpanded.value = false
                         updateWindowForMenuState(false)
                     },
+                    onImmediateStopAndPreview = {
+                        val holdIntent = Intent(applicationContext, ScreenRecordService::class.java).apply {
+                            action = ScreenRecordService.ACTION_HOLD_AND_PREVIEW
+                        }
+                        startService(holdIntent)
+                        RecordingController.showFloatingPreview()
+                        updateWindowForMenuState(true)
+                    },
+                    onContinueRecording = {
+                        RecordingController.hideFloatingPreview()
+                        val continueIntent = Intent(applicationContext, ScreenRecordService::class.java).apply {
+                            action = ScreenRecordService.ACTION_CONTINUE
+                        }
+                        startService(continueIntent)
+                        updateWindowForMenuState(false)
+                    },
+                    onSaveRecording = {
+                        RecordingController.hideFloatingPreview()
+                        val saveIntent = Intent(applicationContext, ScreenRecordService::class.java).apply {
+                            action = ScreenRecordService.ACTION_SAVE_AND_FINISH
+                        }
+                        startService(saveIntent)
+                        updateWindowForMenuState(false)
+                        Toast.makeText(applicationContext, "Video saved to gallery!", Toast.LENGTH_SHORT).show()
+                    },
+                    onEditRecording = {
+                        RecordingController.hideFloatingPreview()
+                        val saveIntent = Intent(applicationContext, ScreenRecordService::class.java).apply {
+                            action = ScreenRecordService.ACTION_SAVE_AND_FINISH
+                        }
+                        startService(saveIntent)
+                        updateWindowForMenuState(false)
+                        val editorIntent = Intent(applicationContext, MainActivity::class.java).apply {
+                            flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP
+                            putExtra("TARGET_SCREEN", "editor")
+                        }
+                        startActivity(editorIntent)
+                    },
+                    onDiscardRecording = {
+                        RecordingController.hideFloatingPreview()
+                        val discardIntent = Intent(applicationContext, ScreenRecordService::class.java).apply {
+                            action = ScreenRecordService.ACTION_DISCARD
+                        }
+                        startService(discardIntent)
+                        updateWindowForMenuState(false)
+                    },
+                    onClosePreview = {
+                        RecordingController.hideFloatingPreview()
+                        updateWindowForMenuState(false)
+                    },
                     onPositionChanged = { newX, newY ->
                         ballPosX = newX
                         ballPosY = newY
-                        if (!isMenuExpanded.value) {
+                        if (!isMenuExpanded.value && !RecordingController.isFloatingPreviewVisible.value) {
                             windowLayoutParams?.let { lp ->
                                 lp.x = newX
                                 lp.y = newY
@@ -323,7 +397,7 @@ class FloatingBallService : Service() {
                             } else {
                                 settingsManager.updateSettings(settings.copy(cameraEnabled = true))
                                 FaceCamController.setFaceCamEnabled(true)
-                                android.widget.Toast.makeText(applicationContext, "FaceCam activated", android.widget.Toast.LENGTH_SHORT).show()
+                                Toast.makeText(applicationContext, "FaceCam activated", Toast.LENGTH_SHORT).show()
                             }
                         } else {
                             settingsManager.updateSettings(settings.copy(cameraEnabled = false))
@@ -361,25 +435,27 @@ class FloatingBallService : Service() {
             return
         }
 
-        // Monitor recording state: if recording is active and hideFloatingBallDuringRecording is enabled,
+        // Monitor recording state: if recording is active, no preview is open, and hideFloatingBallDuringRecording is enabled,
         // hide the entire overlay window from the screen so it is completely excluded from video capture.
         serviceScope.launch {
             combine(
                 RecordingController.isRecording,
                 RecordingController.isPaused,
+                RecordingController.isFloatingPreviewVisible,
                 settingsManager.settings
-            ) { recording, paused, settings ->
-                recording && !paused && settings.hideFloatingBallDuringRecording
-            }.collectLatest { shouldHide ->
+            ) { recording, paused, previewVisible, settings ->
+                val shouldHide = recording && !paused && !previewVisible && settings.hideFloatingBallDuringRecording
+                shouldHide to previewVisible
+            }.collectLatest { (shouldHide, previewVisible) ->
                 withContext(Dispatchers.Main) {
                     isCurrentlyHiddenForRecording = shouldHide
-                    updateWindowForMenuState(isMenuExpanded.value)
+                    updateWindowForMenuState(isMenuExpanded.value || previewVisible)
                 }
             }
         }
     }
 
-    private fun updateWindowForMenuState(expanded: Boolean) {
+    private fun updateWindowForMenuState(expandedOrPreview: Boolean) {
         val view = overlayComposeView ?: return
         val params = windowLayoutParams ?: return
 
@@ -387,9 +463,9 @@ class FloatingBallService : Service() {
             view.visibility = View.GONE
             params.width = 0
             params.height = 0
-        } else if (expanded) {
+        } else if (expandedOrPreview) {
             view.visibility = View.VISIBLE
-            // Expand window to fullscreen so backdrop and menu render properly over everything
+            // Expand window to fullscreen so backdrop and menu or preview render properly over everything
             params.width = WindowManager.LayoutParams.MATCH_PARENT
             params.height = WindowManager.LayoutParams.MATCH_PARENT
             params.x = 0
@@ -655,6 +731,9 @@ private fun FloatingOverlayContent(
     isExpanded: Boolean,
     isRecording: Boolean,
     isPaused: Boolean,
+    isFloatingPreviewVisible: Boolean,
+    previewSegmentFile: File?,
+    previewSegmentUri: Uri?,
     hideWhileRecording: Boolean,
     durationSeconds: Long,
     isFaceCamActive: Boolean,
@@ -665,6 +744,12 @@ private fun FloatingOverlayContent(
     currentY: Int,
     onBallTapped: () -> Unit,
     onMenuClosed: () -> Unit,
+    onImmediateStopAndPreview: () -> Unit,
+    onContinueRecording: () -> Unit,
+    onSaveRecording: () -> Unit,
+    onEditRecording: () -> Unit,
+    onDiscardRecording: () -> Unit,
+    onClosePreview: () -> Unit,
     onPositionChanged: (Int, Int) -> Unit,
     onDismissBall: () -> Unit,
     onStartRecord: () -> Unit,
@@ -684,8 +769,8 @@ private fun FloatingOverlayContent(
     val dismissThresholdY = screenHeightPx - 260f
     val isOverDismissArea = isDragging && posY > dismissThresholdY
 
-    LaunchedEffect(isDragging, isExpanded, isRecording) {
-        if (!isDragging && !isExpanded) {
+    LaunchedEffect(isDragging, isExpanded, isRecording, isFloatingPreviewVisible) {
+        if (!isDragging && !isExpanded && !isFloatingPreviewVisible) {
             isIdle = false
             delay(3500)
             isIdle = true
@@ -701,6 +786,19 @@ private fun FloatingOverlayContent(
     }
 
     Box(modifier = Modifier.fillMaxSize()) {
+        // Floating Recorded Video Preview Dialog
+        if (isFloatingPreviewVisible) {
+            FloatingRecordedVideoPreview(
+                videoFile = previewSegmentFile,
+                videoUri = previewSegmentUri,
+                durationSeconds = durationSeconds,
+                onContinue = onContinueRecording,
+                onSave = onSaveRecording,
+                onEdit = onEditRecording,
+                onDiscard = onDiscardRecording,
+                onClose = onClosePreview
+            )
+        }
         // When expanded, show full dark touch-backdrop to close menu
         if (isExpanded) {
             Box(
@@ -942,7 +1040,11 @@ private fun FloatingOverlayContent(
                     .pointerInput(Unit) {
                         detectTapGestures(
                             onTap = {
-                                onBallTapped()
+                                if (isRecording) {
+                                    onImmediateStopAndPreview()
+                                } else {
+                                    onBallTapped()
+                                }
                             }
                         )
                     }
@@ -983,22 +1085,37 @@ private fun FloatingOverlayContent(
                 contentAlignment = Alignment.Center
             ) {
                 if (isRecording) {
-                    Column(
-                        horizontalAlignment = Alignment.CenterHorizontally,
-                        verticalArrangement = Arrangement.Center
-                    ) {
-                        Icon(
-                            imageVector = if (isPaused) Icons.Default.Pause else Icons.Default.FiberManualRecord,
-                            contentDescription = "Recording Active",
-                            tint = Color.White,
-                            modifier = Modifier.size(18.dp)
-                        )
-                        Text(
-                            text = formatDuration(durationSeconds),
-                            color = Color.White,
-                            fontSize = 9.sp,
-                            fontWeight = FontWeight.Black
-                        )
+                    Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                        Column(
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                            verticalArrangement = Arrangement.Center
+                        ) {
+                            // User request: Change floating camera button to ■ small pause
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.Center
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.Stop,
+                                    contentDescription = "Stop Recording and Preview",
+                                    tint = Color.White,
+                                    modifier = Modifier.size(16.dp)
+                                )
+                                Spacer(modifier = Modifier.width(2.dp))
+                                Icon(
+                                    imageVector = Icons.Default.Pause,
+                                    contentDescription = "Small pause indicator",
+                                    tint = Color(0xFFFFD54F),
+                                    modifier = Modifier.size(10.dp)
+                                )
+                            }
+                            Text(
+                                text = formatDuration(durationSeconds),
+                                color = Color.White,
+                                fontSize = 9.sp,
+                                fontWeight = FontWeight.Black
+                            )
+                        }
                     }
                 } else {
                     Icon(
@@ -1007,6 +1124,242 @@ private fun FloatingOverlayContent(
                         tint = Color(0xFFFF4B2B),
                         modifier = Modifier.size(28.dp)
                     )
+                }
+            }
+        }
+    }
+}
+
+/**
+ * Floating Recorded Video Preview Dialog
+ * Displays the newly finished segment with an ExoPlayer preview,
+ * giving the user direct buttons to "Continue" recording or "Save" the video.
+ */
+@Composable
+private fun FloatingRecordedVideoPreview(
+    videoFile: File?,
+    videoUri: Uri?,
+    durationSeconds: Long,
+    onContinue: () -> Unit,
+    onSave: () -> Unit,
+    onEdit: () -> Unit,
+    onDiscard: () -> Unit,
+    onClose: () -> Unit
+) {
+    val context = androidx.compose.ui.platform.LocalContext.current
+    var isPlaying by remember { mutableStateOf(true) }
+
+    val exoPlayer = remember(videoFile, videoUri) {
+        ExoPlayer.Builder(context).build().apply {
+            repeatMode = Player.REPEAT_MODE_ALL
+            playWhenReady = true
+            val mediaItem = when {
+                videoFile != null && videoFile.exists() -> MediaItem.fromUri(Uri.fromFile(videoFile))
+                videoUri != null -> MediaItem.fromUri(videoUri)
+                else -> null
+            }
+            if (mediaItem != null) {
+                setMediaItem(mediaItem)
+                prepare()
+            }
+        }
+    }
+
+    DisposableEffect(exoPlayer) {
+        onDispose {
+            exoPlayer.release()
+        }
+    }
+
+    // Fullscreen Scrim overlay
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(Color.Black.copy(alpha = 0.65f))
+            .clickable(
+                interactionSource = remember { MutableInteractionSource() },
+                indication = null
+            ) { /* prevent touch passthrough */ },
+        contentAlignment = Alignment.Center
+    ) {
+        Card(
+            modifier = Modifier
+                .fillMaxWidth(0.92f)
+                .wrapContentHeight()
+                .padding(16.dp),
+            shape = RoundedCornerShape(20.dp),
+            colors = CardDefaults.cardColors(containerColor = Color(0xFF181818)),
+            border = androidx.compose.foundation.BorderStroke(1.5.dp, Color(0xFF333333)),
+            elevation = CardDefaults.cardElevation(defaultElevation = 16.dp)
+        ) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(16.dp),
+                horizontalAlignment = Alignment.CenterHorizontally
+            ) {
+                // Header Row
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Box(
+                            modifier = Modifier
+                                .size(10.dp)
+                                .clip(CircleShape)
+                                .background(Color(0xFFFF4B2B))
+                        )
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text(
+                            text = "Recorded Segment",
+                            color = Color.White,
+                            fontSize = 16.sp,
+                            fontWeight = FontWeight.Bold
+                        )
+                    }
+
+                    Surface(
+                        shape = RoundedCornerShape(8.dp),
+                        color = Color(0xFF2A2A2A)
+                    ) {
+                        Text(
+                            text = String.format("%02d:%02d", (durationSeconds % 3600) / 60, durationSeconds % 60),
+                            color = Color(0xFFFF8A80),
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.SemiBold,
+                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+                        )
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(12.dp))
+
+                // Video Player Preview Box
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(190.dp)
+                        .clip(RoundedCornerShape(12.dp))
+                        .background(Color.Black),
+                    contentAlignment = Alignment.Center
+                ) {
+                    if (videoFile != null && videoFile.exists() || videoUri != null) {
+                        AndroidView(
+                            factory = { ctx ->
+                                PlayerView(ctx).apply {
+                                    player = exoPlayer
+                                    useController = false
+                                }
+                            },
+                            modifier = Modifier.fillMaxSize()
+                        )
+                    } else {
+                        Column(
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                            verticalArrangement = Arrangement.Center
+                        ) {
+                            Icon(
+                                Icons.Default.Videocam,
+                                contentDescription = null,
+                                tint = Color(0xFFFF4B2B),
+                                modifier = Modifier.size(48.dp)
+                            )
+                            Spacer(modifier = Modifier.height(8.dp))
+                            Text(
+                                "Segment Ready",
+                                color = Color.White,
+                                fontSize = 14.sp,
+                                fontWeight = FontWeight.Medium
+                            )
+                        }
+                    }
+
+                    // Play/Pause tap overlay
+                    IconButton(
+                        onClick = {
+                            if (isPlaying) {
+                                exoPlayer.pause()
+                                isPlaying = false
+                            } else {
+                                exoPlayer.play()
+                                isPlaying = true
+                            }
+                        },
+                        modifier = Modifier
+                            .size(44.dp)
+                            .clip(CircleShape)
+                            .background(Color.Black.copy(alpha = 0.5f))
+                    ) {
+                        Icon(
+                            imageVector = if (isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow,
+                            contentDescription = "Toggle playback",
+                            tint = Color.White
+                        )
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(16.dp))
+
+                // Primary Actions: Save and Continue
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    // Continue Button
+                    Button(
+                        onClick = onContinue,
+                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF00C853)),
+                        shape = RoundedCornerShape(12.dp),
+                        modifier = Modifier.weight(1f).height(48.dp)
+                    ) {
+                        Icon(Icons.Default.PlayArrow, contentDescription = null, tint = Color.White, modifier = Modifier.size(20.dp))
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text("Continue", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 14.sp)
+                    }
+
+                    // Save Button
+                    Button(
+                        onClick = onSave,
+                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFFF4B2B)),
+                        shape = RoundedCornerShape(12.dp),
+                        modifier = Modifier.weight(1f).height(48.dp)
+                    ) {
+                        Icon(Icons.Default.Check, contentDescription = null, tint = Color.White, modifier = Modifier.size(18.dp))
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text("Save Video", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 14.sp)
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(10.dp))
+
+                // Secondary Actions: Edit Crop / Discard
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    OutlinedButton(
+                        onClick = onEdit,
+                        shape = RoundedCornerShape(12.dp),
+                        border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFF3E3E3E)),
+                        modifier = Modifier.weight(1f).height(40.dp)
+                    ) {
+                        Icon(Icons.Default.Crop, contentDescription = null, tint = Color(0xFFFF4B2B), modifier = Modifier.size(16.dp))
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text("Edit & Crop", color = Color.White, fontSize = 12.sp)
+                    }
+
+                    OutlinedButton(
+                        onClick = onDiscard,
+                        shape = RoundedCornerShape(12.dp),
+                        border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFF3E3E3E)),
+                        modifier = Modifier.weight(1f).height(40.dp)
+                    ) {
+                        Icon(Icons.Default.DeleteOutline, contentDescription = null, tint = Color(0xFFFF5252), modifier = Modifier.size(16.dp))
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text("Discard", color = Color(0xFFFF5252), fontSize = 12.sp)
+                    }
                 }
             }
         }

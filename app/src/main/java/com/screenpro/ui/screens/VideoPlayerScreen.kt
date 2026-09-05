@@ -2,15 +2,18 @@ package com.screenpro.ui.screens
 
 import android.content.Context
 import android.media.AudioManager
+import androidx.activity.compose.BackHandler
 import androidx.annotation.OptIn
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
@@ -39,11 +42,15 @@ import kotlinx.coroutines.delay
 fun VideoPlayerScreen(
     item: AppMediaItem,
     onClose: () -> Unit,
+    onNavigateHome: () -> Unit = onClose,
     onOpenEditor: (AppMediaItem) -> Unit,
     onShare: (AppMediaItem) -> Unit,
     onDelete: (AppMediaItem) -> Unit
 ) {
     val context = LocalContext.current
+
+    // Fullscreen in-app back handling
+    BackHandler(onBack = onClose)
 
     val exoPlayer = remember {
         ExoPlayer.Builder(context).build().apply {
@@ -170,6 +177,18 @@ fun VideoPlayerScreen(
                             .background(Color.White.copy(alpha = 0.15f))
                     ) {
                         Icon(Icons.Default.ArrowBack, contentDescription = "Back", tint = Color.White)
+                    }
+
+                    Spacer(modifier = Modifier.width(8.dp))
+
+                    IconButton(
+                        onClick = onNavigateHome,
+                        modifier = Modifier
+                            .size(40.dp)
+                            .clip(CircleShape)
+                            .background(Color.White.copy(alpha = 0.15f))
+                    ) {
+                        Icon(Icons.Default.Home, contentDescription = "Home Page Shortcut", tint = Color.White)
                     }
 
                     Spacer(modifier = Modifier.width(12.dp))
@@ -380,6 +399,38 @@ fun VideoPlayerScreen(
                             )
                         }
                     }
+                }
+            }
+        }
+
+        // Persistent Fullscreen Floating Mini Back & Home controls when overlay hidden
+        AnimatedVisibility(
+            visible = !showControls,
+            enter = fadeIn(),
+            exit = fadeOut(),
+            modifier = Modifier.align(Alignment.TopStart)
+        ) {
+            Row(
+                modifier = Modifier
+                    .padding(top = 16.dp, start = 16.dp)
+                    .clip(RoundedCornerShape(24.dp))
+                    .background(Color.Black.copy(alpha = 0.65f))
+                    .border(1.dp, Color.White.copy(alpha = 0.2f), RoundedCornerShape(24.dp))
+                    .padding(horizontal = 4.dp, vertical = 2.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                IconButton(
+                    onClick = onClose,
+                    modifier = Modifier.size(36.dp)
+                ) {
+                    Icon(Icons.Default.ArrowBack, contentDescription = "Back", tint = Color.White, modifier = Modifier.size(20.dp))
+                }
+                Spacer(modifier = Modifier.width(2.dp))
+                IconButton(
+                    onClick = onNavigateHome,
+                    modifier = Modifier.size(36.dp)
+                ) {
+                    Icon(Icons.Default.Home, contentDescription = "Home Page Shortcut", tint = Color.White, modifier = Modifier.size(20.dp))
                 }
             }
         }
