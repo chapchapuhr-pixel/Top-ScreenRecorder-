@@ -1,6 +1,6 @@
 {
-  "name": "ScreenPro",
-  "description": "Professional Android screen recorder with high-performance video capture, audio mixing, face-camera bubble, live screen annotations, media library, and mobile video editor.",
+  "name": "Free Screen Recorder",
+  "description": "Free Android screen recorder with high-performance video capture, audio mixing, face-camera bubble, live screen annotations, media library, and mobile video editor.",
   "requestFramePermissions": [
     "camera",
     "microphone"

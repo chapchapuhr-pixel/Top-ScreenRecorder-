@@ -45,7 +45,8 @@ fun VideoPlayerScreen(
     onNavigateHome: () -> Unit = onClose,
     onOpenEditor: (AppMediaItem) -> Unit,
     onShare: (AppMediaItem) -> Unit,
-    onDelete: (AppMediaItem) -> Unit
+    onDelete: (AppMediaItem) -> Unit,
+    onSaveToPhone: (AppMediaItem) -> Unit = {}
 ) {
     val context = LocalContext.current
 
@@ -210,6 +211,21 @@ fun VideoPlayerScreen(
                     }
 
                     Spacer(modifier = Modifier.width(8.dp))
+
+                    // Save in Phone Button
+                    if (!item.isSavedToGallery) {
+                        Button(
+                            onClick = { onSaveToPhone(item) },
+                            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF1E88E5)),
+                            contentPadding = PaddingValues(horizontal = 10.dp, vertical = 6.dp),
+                            modifier = Modifier.height(36.dp)
+                        ) {
+                            Icon(Icons.Default.SaveAlt, contentDescription = null, modifier = Modifier.size(15.dp))
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Text("Save in Phone", fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                        }
+                        Spacer(modifier = Modifier.width(6.dp))
+                    }
 
                     // Edit Button
                     Button(

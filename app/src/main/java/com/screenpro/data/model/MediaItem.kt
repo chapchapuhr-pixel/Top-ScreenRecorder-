@@ -18,5 +18,7 @@ data class MediaItem(
     val mimeType: String,
     val uri: Uri,
     val width: Int = 1080,
-    val height: Int = 1920
+    val height: Int = 1920,
+    val isSavedToGallery: Boolean = false,
+    val localFilePath: String? = null
 )

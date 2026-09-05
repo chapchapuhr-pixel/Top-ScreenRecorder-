@@ -3,35 +3,183 @@
     xmlns:aapt="http://schemas.android.com/aapt"
     android:width="108dp"
     android:height="108dp"
-    android:viewportWidth="108"
-    android:viewportHeight="108">
-    <!-- Outer screen frame (safe zone inside 21..87) -->
+    android:viewportWidth="1024"
+    android:viewportHeight="1024">
+
+    <!-- Camera Body -->
     <path
-        android:pathData="M32,28h44c5.52,0 10,4.48 10,10v32c0,5.52 -4.48,10 -10,10h-44c-5.52,0 -10,-4.48 -10,-10v-32c0,-5.52 4.48,-10 10,-10z"
-        android:strokeWidth="4"
-        android:strokeColor="#3D3D3D"
-        android:fillColor="#0D0D0D" />
-    <!-- Stand -->
-    <path
-        android:pathData="M48,80h12v6h-12z M42,86h24v3h-24z"
-        android:fillColor="#3D3D3D" />
-    <!-- Center Record Circle with Gradient -->
-    <path
-        android:pathData="M54,54m-16,0a16,16 0,1,1 32,0a16,16 0,1,1 -32,0">
+        android:pathData="M230,405 C230,350 275,310 330,310 L370,310 L390,270 C402,244 427,226 456,226 L582,226 C616,226 645,248 654,281 L665,318 L724,318 C774,318 805,358 805,407 L805,680 C805,733 770,768 720,768 L316,768 C265,768 230,731 230,680 Z">
         <aapt:attr name="android:fillColor">
             <gradient
-                android:startX="38"
-                android:startY="38"
-                android:endX="70"
-                android:endY="70"
+                android:startX="0"
+                android:startY="226"
+                android:endX="0"
+                android:endY="768"
                 android:type="linear">
-                <item android:offset="0.0" android:color="#FFFF4B2B" />
-                <item android:offset="1.0" android:color="#FFFF416C" />
+                <item android:offset="0.0" android:color="#FFFFFF" />
+                <item android:offset="1.0" android:color="#FFF8F2" />
             </gradient>
         </aapt:attr>
     </path>
-    <!-- Inner Core Dot -->
+
+    <!-- Top flash detail -->
     <path
-        android:pathData="M54,54m-6,0a6,6 0,1,1 12,0a6,6 0,1,1 -12,0"
-        android:fillColor="#FFFFFF" />
+        android:fillColor="#FFFFFF"
+        android:pathData="M300,265 h35 a10,10 0 0 1 10,10 v10 a10,10 0 0 1 -10,10 h-35 a10,10 0 0 1 -10,-10 v-10 a10,10 0 0 1 10,-10 z" />
+
+    <!-- Left diagonal cuts -->
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M230,425 L310,540 L390,680 L230,625 Z" />
+    <path
+        android:strokeColor="#9E2606"
+        android:strokeWidth="7"
+        android:pathData="M230,420 L315,540" />
+    <path
+        android:strokeColor="#9E2606"
+        android:strokeWidth="7"
+        android:pathData="M230,625 L390,680" />
+
+    <!-- Top-right diagonal cuts -->
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M415,226 L665,430 L650,330 L450,226 Z" />
+    <path
+        android:strokeColor="#9E2606"
+        android:strokeWidth="8"
+        android:pathData="M415,226 L665,430" />
+
+    <!-- Right diagonal cut -->
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M665,318 L805,570 L805,690 L750,615 Z" />
+    <path
+        android:strokeColor="#9E2606"
+        android:strokeWidth="7"
+        android:pathData="M665,318 L805,570" />
+
+    <!-- Shutter / Outer Lens Ring -->
+    <path
+        android:pathData="M505,335 a185,185 0 1,0 0.0001,0 Z">
+        <aapt:attr name="android:fillColor">
+            <gradient
+                android:centerX="505"
+                android:centerY="520"
+                android:gradientRadius="185"
+                android:type="radial">
+                <item android:offset="0.0" android:color="#FFB12B" />
+                <item android:offset="0.55" android:color="#E84A08" />
+                <item android:offset="1.0" android:color="#9F2605" />
+            </gradient>
+        </aapt:attr>
+    </path>
+
+    <!-- Outer lens ring stroke -->
+    <path
+        android:strokeColor="#8F2506"
+        android:strokeWidth="13"
+        android:fillColor="#00000000"
+        android:pathData="M505,347 a173,173 0 1,0 0.0001,0 Z" />
+
+    <!-- Ring highlights -->
+    <path
+        android:strokeColor="#FF7C17"
+        android:strokeWidth="8"
+        android:fillColor="#00000000"
+        android:pathData="M505,362 a158,158 0 1,0 0.0001,0 Z" />
+    <path
+        android:strokeColor="#FF9B26"
+        android:strokeWidth="9"
+        android:fillColor="#00000000"
+        android:pathData="M505,377 a143,143 0 1,0 0.0001,0 Z" />
+
+    <!-- Main white lens circle -->
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M505,394 a126,126 0 1,0 0.0001,0 Z" />
+
+    <!-- Lens center ring -->
+    <path
+        android:strokeColor="#E84A08"
+        android:strokeWidth="14"
+        android:fillColor="#00000000"
+        android:pathData="M505,453 a67,67 0 1,0 0.0001,0 Z" />
+
+    <!-- Lens center core -->
+    <path
+        android:pathData="M505,482 a38,38 0 1,0 0.0001,0 Z">
+        <aapt:attr name="android:fillColor">
+            <gradient
+                android:centerX="505"
+                android:centerY="520"
+                android:gradientRadius="38"
+                android:type="radial">
+                <item android:offset="0.0" android:color="#FF6A00" />
+                <item android:offset="1.0" android:color="#D83200" />
+            </gradient>
+        </aapt:attr>
+    </path>
+
+    <!-- Lens reflection -->
+    <path
+        android:fillColor="#FF4B08"
+        android:pathData="M584,433 a17,17 0 1,0 0.0001,0 Z" />
+
+    <!-- Lens glow ticks -->
+    <path
+        android:fillColor="#FFAD31"
+        android:pathData="M500,323 a5,5 0 0 1 5,-5 h0 a5,5 0 0 1 5,5 v29 a5,5 0 0 1 -5,5 h0 a5,5 0 0 1 -5,-5 z" />
+    <path
+        android:fillColor="#FFAD31"
+        android:pathData="M500,686 a5,5 0 0 1 5,-5 h0 a5,5 0 0 1 5,5 v29 a5,5 0 0 1 -5,5 h0 a5,5 0 0 1 -5,-5 z" />
+    <path
+        android:fillColor="#FFAD31"
+        android:pathData="M308,515 h29 a5,5 0 0 1 5,5 v0 a5,5 0 0 1 -5,5 h-29 a5,5 0 0 1 -5,-5 v0 a5,5 0 0 1 5,-5 z" />
+    <path
+        android:fillColor="#FFAD31"
+        android:pathData="M673,515 h29 a5,5 0 0 1 5,5 v0 a5,5 0 0 1 -5,5 h-29 a5,5 0 0 1 -5,-5 v0 a5,5 0 0 1 5,-5 z" />
+    <path
+        android:fillColor="#FFAD31"
+        android:pathData="M322,513 a7,7 0 1,0 0.0001,0 Z" />
+    <path
+        android:fillColor="#FFAD31"
+        android:pathData="M690,513 a7,7 0 1,0 0.0001,0 Z" />
+
+    <!-- Orange lens arc accents -->
+    <path
+        android:strokeColor="#FF8B21"
+        android:strokeWidth="8"
+        android:strokeLineCap="round"
+        android:fillColor="#00000000"
+        android:pathData="M333,492 A175,175 0 0,1 400,387" />
+    <path
+        android:strokeColor="#FF9D2D"
+        android:strokeWidth="9"
+        android:strokeLineCap="round"
+        android:fillColor="#00000000"
+        android:pathData="M610,380 A175,175 0 0,1 667,492" />
+    <path
+        android:strokeColor="#FF8B21"
+        android:strokeWidth="10"
+        android:strokeLineCap="round"
+        android:fillColor="#00000000"
+        android:pathData="M365,610 A175,175 0 0,0 395,650" />
+
+    <!-- Bottom heartbeat line -->
+    <path
+        android:strokeColor="#FFFFFF"
+        android:strokeWidth="12"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round"
+        android:fillColor="#00000000"
+        android:pathData="M385,726 L425,726 L446,695 L470,755 L500,665 L526,776 L551,691 L570,726 L615,726" />
+
+    <!-- Plus symbol -->
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M680,666 h11 a12,12 0 0 1 12,12 v81 a12,12 0 0 1 -12,12 h-11 a12,12 0 0 1 -12,-12 v-81 a12,12 0 0 1 12,-12 z" />
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M645,701 h81 a12,12 0 0 1 12,12 v11 a12,12 0 0 1 -12,12 h-81 a12,12 0 0 1 -12,-12 v-11 a12,12 0 0 1 12,-12 z" />
+
 </vector>

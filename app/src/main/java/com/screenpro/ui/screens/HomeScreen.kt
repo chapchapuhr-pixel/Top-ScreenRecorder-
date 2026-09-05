@@ -27,10 +27,17 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
+import coil.decode.VideoFrameDecoder
 import coil.request.ImageRequest
+import coil.request.videoFrameMillis
+import android.graphics.Bitmap
+import androidx.compose.foundation.Image
+import androidx.compose.ui.graphics.asImageBitmap
+import com.screenpro.util.VideoThumbnailHelper
 import com.screenpro.data.model.AppSettings
 import com.screenpro.data.model.MediaItem
 import com.screenpro.data.model.MediaType
+import java.io.File
 import java.text.SimpleDateFormat
 import java.util.*
 
@@ -122,7 +129,7 @@ fun HomeScreen(
                         Spacer(modifier = Modifier.width(10.dp))
                         Column {
                             Text(
-                                text = "ScreenPro",
+                                text = "Free Screen Recorder",
                                 style = MaterialTheme.typography.titleMedium,
                                 fontWeight = FontWeight.Black,
                                 color = Color.White
@@ -481,15 +488,38 @@ fun HomeScreen(
                                     .background(Color(0xFF222222)),
                                 contentAlignment = Alignment.Center
                             ) {
-                                AsyncImage(
-                                    model = ImageRequest.Builder(context)
-                                        .data(item.uri)
-                                        .crossfade(true)
-                                        .build(),
-                                    contentDescription = item.title,
-                                    contentScale = ContentScale.Crop,
-                                    modifier = Modifier.fillMaxSize()
-                                )
+                                var fallbackBitmap by remember(item.id) { mutableStateOf<Bitmap?>(null) }
+                                if (item.type == MediaType.VIDEO) {
+                                    LaunchedEffect(item.id, item.uri, item.localFilePath) {
+                                        fallbackBitmap = VideoThumbnailHelper.loadThumbnail(context, item.uri, item.localFilePath)
+                                    }
+                                }
+
+                                if (fallbackBitmap != null) {
+                                    Image(
+                                        bitmap = fallbackBitmap!!.asImageBitmap(),
+                                        contentDescription = item.title,
+                                        contentScale = ContentScale.Crop,
+                                        modifier = Modifier.fillMaxSize()
+                                    )
+                                } else {
+                                    val request = remember(item.uri, item.localFilePath) {
+                                        val builder = ImageRequest.Builder(context)
+                                            .data(item.localFilePath?.let { File(it) } ?: item.uri)
+                                            .crossfade(true)
+                                        if (item.type == MediaType.VIDEO) {
+                                            builder.decoderFactory(VideoFrameDecoder.Factory())
+                                                .videoFrameMillis(500)
+                                        }
+                                        builder.build()
+                                    }
+                                    AsyncImage(
+                                        model = request,
+                                        contentDescription = item.title,
+                                        contentScale = ContentScale.Crop,
+                                        modifier = Modifier.fillMaxSize()
+                                    )
+                                }
 
                                 if (item.type == MediaType.VIDEO) {
                                     Box(

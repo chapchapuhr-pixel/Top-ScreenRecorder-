@@ -25,9 +25,16 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
+import coil.decode.VideoFrameDecoder
 import coil.request.ImageRequest
+import coil.request.videoFrameMillis
+import android.graphics.Bitmap
+import androidx.compose.foundation.Image
+import androidx.compose.ui.graphics.asImageBitmap
+import com.screenpro.util.VideoThumbnailHelper
 import com.screenpro.data.model.MediaItem
 import com.screenpro.data.model.MediaType
+import java.io.File
 import java.text.SimpleDateFormat
 import java.util.*
 
@@ -40,6 +47,7 @@ fun LibraryScreen(
     onShareItem: (MediaItem) -> Unit,
     onDeleteItem: (MediaItem) -> Unit,
     onRenameItem: (MediaItem, String) -> Unit,
+    onSaveToPhone: (MediaItem) -> Unit = {},
     onNavigateBack: () -> Unit,
     onNavigateHome: () -> Unit = onNavigateBack
 ) {
@@ -350,15 +358,38 @@ fun LibraryScreen(
                                         .background(Color(0xFF1A1A1A)),
                                     contentAlignment = Alignment.Center
                                 ) {
-                                    AsyncImage(
-                                        model = ImageRequest.Builder(context)
-                                            .data(item.uri)
-                                            .crossfade(true)
-                                            .build(),
-                                        contentDescription = item.title,
-                                        contentScale = ContentScale.Crop,
-                                        modifier = Modifier.fillMaxSize()
-                                    )
+                                    var fallbackBitmap by remember(item.id) { mutableStateOf<Bitmap?>(null) }
+                                    if (item.type == MediaType.VIDEO) {
+                                        LaunchedEffect(item.id, item.uri, item.localFilePath) {
+                                            fallbackBitmap = VideoThumbnailHelper.loadThumbnail(context, item.uri, item.localFilePath)
+                                        }
+                                    }
+
+                                    if (fallbackBitmap != null) {
+                                        Image(
+                                            bitmap = fallbackBitmap!!.asImageBitmap(),
+                                            contentDescription = item.title,
+                                            contentScale = ContentScale.Crop,
+                                            modifier = Modifier.fillMaxSize()
+                                        )
+                                    } else {
+                                        val request = remember(item.uri, item.localFilePath) {
+                                            val builder = ImageRequest.Builder(context)
+                                                .data(item.localFilePath?.let { File(it) } ?: item.uri)
+                                                .crossfade(true)
+                                            if (item.type == MediaType.VIDEO) {
+                                                builder.decoderFactory(VideoFrameDecoder.Factory())
+                                                    .videoFrameMillis(500)
+                                            }
+                                            builder.build()
+                                        }
+                                        AsyncImage(
+                                            model = request,
+                                            contentDescription = item.title,
+                                            contentScale = ContentScale.Crop,
+                                            modifier = Modifier.fillMaxSize()
+                                        )
+                                    }
 
                                     // Play icon overlay
                                     if (item.type == MediaType.VIDEO) {
@@ -448,7 +479,37 @@ fun LibraryScreen(
                                         overflow = TextOverflow.Ellipsis
                                     )
 
+                                    // Save in Phone action button / status
                                     Spacer(modifier = Modifier.height(6.dp))
+                                    if (item.isSavedToGallery) {
+                                        Row(
+                                            verticalAlignment = Alignment.CenterVertically,
+                                            modifier = Modifier
+                                                .fillMaxWidth()
+                                                .background(Color(0xFF1B3B22), RoundedCornerShape(8.dp))
+                                                .padding(horizontal = 8.dp, vertical = 4.dp)
+                                        ) {
+                                            Icon(Icons.Default.CheckCircle, contentDescription = null, tint = Color(0xFF4CAF50), modifier = Modifier.size(13.dp))
+                                            Spacer(modifier = Modifier.width(4.dp))
+                                            Text("Saved in Phone", color = Color(0xFF81C784), fontSize = 10.sp, fontWeight = FontWeight.SemiBold)
+                                        }
+                                    } else {
+                                        Button(
+                                            onClick = { onSaveToPhone(item) },
+                                            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF1E88E5)),
+                                            shape = RoundedCornerShape(8.dp),
+                                            contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp),
+                                            modifier = Modifier
+                                                .fillMaxWidth()
+                                                .height(28.dp)
+                                        ) {
+                                            Icon(Icons.Default.SaveAlt, contentDescription = null, tint = Color.White, modifier = Modifier.size(13.dp))
+                                            Spacer(modifier = Modifier.width(4.dp))
+                                            Text("Save in Phone", color = Color.White, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                                        }
+                                    }
+
+                                    Spacer(modifier = Modifier.height(4.dp))
 
                                     // Quick Item Actions
                                     Row(
@@ -488,6 +549,16 @@ fun LibraryScreen(
                                                 onDismissRequest = { showItemMenu = false },
                                                 modifier = Modifier.background(Color(0xFF1E1E1E))
                                             ) {
+                                                if (!item.isSavedToGallery) {
+                                                    DropdownMenuItem(
+                                                        text = { Text("Save in Phone", color = Color(0xFF64B5F6)) },
+                                                        leadingIcon = { Icon(Icons.Default.SaveAlt, null, tint = Color(0xFF64B5F6)) },
+                                                        onClick = {
+                                                            onSaveToPhone(item)
+                                                            showItemMenu = false
+                                                        }
+                                                    )
+                                                }
                                                 DropdownMenuItem(
                                                     text = { Text("Details", color = Color.White) },
                                                     leadingIcon = { Icon(Icons.Default.Info, null, tint = Color.LightGray) },

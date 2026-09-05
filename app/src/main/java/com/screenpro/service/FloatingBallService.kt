@@ -281,12 +281,12 @@ class FloatingBallService : Service() {
                         updateWindowForMenuState(false)
                     },
                     onImmediateStopAndPreview = {
-                        val holdIntent = Intent(applicationContext, ScreenRecordService::class.java).apply {
-                            action = ScreenRecordService.ACTION_HOLD_AND_PREVIEW
+                        val stopIntent = Intent(applicationContext, ScreenRecordService::class.java).apply {
+                            action = ScreenRecordService.ACTION_STOP
                         }
-                        startService(holdIntent)
-                        RecordingController.showFloatingPreview()
-                        updateWindowForMenuState(true)
+                        startService(stopIntent)
+                        RecordingController.onRecordingStopped()
+                        Toast.makeText(applicationContext, "Video stopped and saved to App Library!", Toast.LENGTH_SHORT).show()
                     },
                     onContinueRecording = {
                         RecordingController.hideFloatingPreview()
@@ -435,20 +435,16 @@ class FloatingBallService : Service() {
             return
         }
 
-        // Monitor recording state: if recording is active, no preview is open, and hideFloatingBallDuringRecording is enabled,
-        // hide the entire overlay window from the screen so it is completely excluded from video capture.
+        // Monitor recording state: During recording, ensure the small stop ball is displayed and updated.
         serviceScope.launch {
             combine(
                 RecordingController.isRecording,
                 RecordingController.isPaused,
-                RecordingController.isFloatingPreviewVisible,
-                settingsManager.settings
-            ) { recording, paused, previewVisible, settings ->
-                val shouldHide = recording && !paused && !previewVisible && settings.hideFloatingBallDuringRecording
-                shouldHide to previewVisible
-            }.collectLatest { (shouldHide, previewVisible) ->
+                RecordingController.isFloatingPreviewVisible
+            ) { recording, paused, previewVisible ->
+                recording to previewVisible
+            }.collectLatest { (recording, previewVisible) ->
                 withContext(Dispatchers.Main) {
-                    isCurrentlyHiddenForRecording = shouldHide
                     updateWindowForMenuState(isMenuExpanded.value || previewVisible)
                 }
             }
@@ -459,22 +455,20 @@ class FloatingBallService : Service() {
         val view = overlayComposeView ?: return
         val params = windowLayoutParams ?: return
 
-        if (isCurrentlyHiddenForRecording) {
-            view.visibility = View.GONE
-            params.width = 0
-            params.height = 0
-        } else if (expandedOrPreview) {
-            view.visibility = View.VISIBLE
+        view.visibility = View.VISIBLE
+        if (expandedOrPreview) {
             // Expand window to fullscreen so backdrop and menu or preview render properly over everything
             params.width = WindowManager.LayoutParams.MATCH_PARENT
             params.height = WindowManager.LayoutParams.MATCH_PARENT
             params.x = 0
             params.y = 0
         } else {
-            view.visibility = View.VISIBLE
-            // Shrink window to just the small ball so background apps get touches uninterrupted
-            params.width = ballSizePx
-            params.height = ballSizePx
+            // During recording, show small stop icon (48dp), otherwise standard ball (56dp)
+            val density = resources.displayMetrics.density
+            val isRec = RecordingController.isRecording.value
+            val currentSizePx = if (isRec) (48 * density).roundToInt() else ballSizePx
+            params.width = currentSizePx
+            params.height = currentSizePx
             params.x = ballPosX
             params.y = ballPosY
         }
@@ -489,7 +483,7 @@ class FloatingBallService : Service() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             val channel = NotificationChannel(
                 CHANNEL_ID,
-                "ScreenPro Floating Assistant",
+                "Free Screen Recorder Floating Assistant",
                 NotificationManager.IMPORTANCE_LOW
             ).apply {
                 description = "Keeps the floating quick-access ball active across all apps"
@@ -522,7 +516,7 @@ class FloatingBallService : Service() {
         )
 
         return NotificationCompat.Builder(this, CHANNEL_ID)
-            .setContentTitle("ScreenPro Floating Ball")
+            .setContentTitle("Free Screen Recorder")
             .setContentText("Quick tools active • Tap to open app")
             .setSmallIcon(R.mipmap.ic_launcher)
             .setOngoing(true)
@@ -939,7 +933,7 @@ private fun FloatingOverlayContent(
                     ) {
                         SystemToolItem(
                             icon = Icons.Default.CameraAlt,
-                            label = "Capture",
+                            label = "Screenshot",
                             isActive = false,
                             activeColor = Color(0xFF00E5FF),
                             onClick = onTakeScreenshot
@@ -955,7 +949,7 @@ private fun FloatingOverlayContent(
 
                         SystemToolItem(
                             icon = Icons.Default.Home,
-                            label = "ScreenPro",
+                            label = "Home",
                             isActive = false,
                             activeColor = Color.White,
                             onClick = onOpenHome
@@ -1009,31 +1003,31 @@ private fun FloatingOverlayContent(
 
         // The Floating Ball View itself
         // When expanded, hide the floating button completely and keep ONLY the Ready to Record panel.
-        // When user clicks 'x' (or closes it), the menu closes and the floating button returns.
-        // During active recording, hide the floating ball completely so it is never recorded into video.
-        val shouldHideBallForRecording = isRecording && !isPaused && hideWhileRecording
-        if (!isExpanded && !shouldHideBallForRecording) {
+        // User request: When start recording change floating ball camera to small stop 🛑 icon,
+        // even if user choose to hide floating ball. This will help user to stop recording video and save.
+        if (!isExpanded) {
+            val currentBallDp = if (isRecording) 48.dp else 56.dp
             Box(
                 modifier = Modifier
                     .fillMaxSize()
-                    .size(56.dp)
-                    .alpha(if (isIdle) 0.55f else 0.95f)
-                    .shadow(10.dp, CircleShape)
+                    .size(currentBallDp)
+                    .alpha(if (isIdle && !isRecording) 0.65f else 1.0f)
+                    .shadow(12.dp, CircleShape)
                     .clip(CircleShape)
                     .background(
                         Brush.radialGradient(
                             colors = if (isRecording) {
                                 if (isPaused) listOf(Color(0xFFFFB300), Color(0xFFE65100))
-                                else listOf(Color(0xFFFF5252), Color(0xFFD50000))
+                                else listOf(Color(0xFFFF1744), Color(0xFFD50000))
                             } else {
                                 listOf(Color(0xFF2A2A2A), Color(0xFF141414))
                             }
                         )
                     )
                     .border(
-                        2.dp,
+                        if (isRecording) 2.5.dp else 2.dp,
                         if (isRecording) {
-                            if (isPaused) Color(0xFFFFD54F) else Color(0xFFFF8A80)
+                            if (isPaused) Color(0xFFFFD54F) else Color.White
                         } else Color(0xFFFF4B2B),
                         CircleShape
                     )
@@ -1056,7 +1050,7 @@ private fun FloatingOverlayContent(
                             },
                             onDragEnd = {
                                 isDragging = false
-                                if (isOverDismissArea) {
+                                if (isOverDismissArea && !isRecording) {
                                     onDismissBall()
                                 } else {
                                     // Snap gently toward nearest left or right edge
@@ -1090,29 +1084,18 @@ private fun FloatingOverlayContent(
                             horizontalAlignment = Alignment.CenterHorizontally,
                             verticalArrangement = Arrangement.Center
                         ) {
-                            // User request: Change floating camera button to ■ small pause
-                            Row(
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.Center
-                            ) {
-                                Icon(
-                                    imageVector = Icons.Default.Stop,
-                                    contentDescription = "Stop Recording and Preview",
-                                    tint = Color.White,
-                                    modifier = Modifier.size(16.dp)
-                                )
-                                Spacer(modifier = Modifier.width(2.dp))
-                                Icon(
-                                    imageVector = Icons.Default.Pause,
-                                    contentDescription = "Small pause indicator",
-                                    tint = Color(0xFFFFD54F),
-                                    modifier = Modifier.size(10.dp)
-                                )
-                            }
+                            // Small Stop 🛑 icon with Stop square and timer
+                            Box(
+                                modifier = Modifier
+                                    .size(15.dp)
+                                    .clip(RoundedCornerShape(3.dp))
+                                    .background(Color.White)
+                            )
+                            Spacer(modifier = Modifier.height(2.dp))
                             Text(
                                 text = formatDuration(durationSeconds),
                                 color = Color.White,
-                                fontSize = 9.sp,
+                                fontSize = 8.sp,
                                 fontWeight = FontWeight.Black
                             )
                         }

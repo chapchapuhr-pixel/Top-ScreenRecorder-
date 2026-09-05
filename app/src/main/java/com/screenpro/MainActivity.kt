@@ -43,6 +43,7 @@ import com.screenpro.data.model.MediaItem
 import com.screenpro.data.model.MediaType
 import com.screenpro.recording.RecordingController
 import com.screenpro.recording.VideoResolutionHelper
+import com.screenpro.service.CaptureLauncherActivity
 import com.screenpro.service.FloatingBallService
 import com.screenpro.service.ScreenRecordService
 import com.screenpro.storage.MediaStoreRepository
@@ -124,8 +125,28 @@ class MainActivity : ComponentActivity() {
         ActivityResultContracts.RequestMultiplePermissions()
     ) { permissions ->
         val micGranted = permissions[Manifest.permission.RECORD_AUDIO] ?: false
-        if (!micGranted) {
-            Toast.makeText(this, "Microphone access is recommended for voiceover", Toast.LENGTH_SHORT).show()
+        val cameraGranted = permissions[Manifest.permission.CAMERA] ?: false
+        if (cameraGranted) {
+            settingsManager.updateSettings(settingsManager.settings.value.copy(cameraEnabled = true))
+            com.screenpro.recording.FaceCamController.setFaceCamEnabled(true)
+        }
+
+        // When user accepts app permissions, automatically show floating ball on screen
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+            if (Settings.canDrawOverlays(this)) {
+                settingsManager.updateSettings(settingsManager.settings.value.copy(floatingBallEnabled = true))
+                FloatingBallService.start(this)
+                Toast.makeText(this, "Floating ball active on your screen!", Toast.LENGTH_SHORT).show()
+            } else {
+                val intent = Intent(
+                    Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
+                    Uri.parse("package:$packageName")
+                )
+                overlayPermissionLauncher.launch(intent)
+            }
+        } else {
+            settingsManager.updateSettings(settingsManager.settings.value.copy(floatingBallEnabled = true))
+            FloatingBallService.start(this)
         }
     }
 
@@ -470,6 +491,9 @@ class MainActivity : ComponentActivity() {
                                     onRenameItem = { item, newName ->
                                         renameMedia(item, newName)
                                     },
+                                    onSaveToPhone = { item ->
+                                        saveToPhoneGallery(item)
+                                    },
                                     onNavigateBack = {
                                         navigateBack()
                                     },
@@ -514,6 +538,9 @@ class MainActivity : ComponentActivity() {
                                         onDelete = { itemToDelete ->
                                             deleteMedia(itemToDelete)
                                             navigateBack()
+                                        },
+                                        onSaveToPhone = { itemToSave ->
+                                            saveToPhoneGallery(itemToSave)
                                         }
                                     )
                                 } ?: run {
@@ -683,6 +710,26 @@ class MainActivity : ComponentActivity() {
 
         if (permissionsToRequest.isNotEmpty()) {
             permissionLauncher.launch(permissionsToRequest.toTypedArray())
+        } else {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                if (Settings.canDrawOverlays(this)) {
+                    settingsManager.updateSettings(settingsManager.settings.value.copy(floatingBallEnabled = true))
+                    if (!FloatingBallService.isRunning) {
+                        FloatingBallService.start(this)
+                    }
+                } else {
+                    val intent = Intent(
+                        Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
+                        Uri.parse("package:$packageName")
+                    )
+                    overlayPermissionLauncher.launch(intent)
+                }
+            } else {
+                settingsManager.updateSettings(settingsManager.settings.value.copy(floatingBallEnabled = true))
+                if (!FloatingBallService.isRunning) {
+                    FloatingBallService.start(this)
+                }
+            }
         }
     }
 
@@ -714,60 +761,15 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun captureScreenshot() {
-        lifecycleScope.launch(Dispatchers.IO) {
-            // Generate high-resolution screen snapshot bitmap
-            val width = 1080
-            val height = 1920
-            val bitmap = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
-            val canvas = Canvas(bitmap)
-
-            // Draw crisp aesthetic snapshot background with branded watermarks
-            val bgPaint = Paint().apply { color = AndroidColor.parseColor("#0E0E0E") }
-            canvas.drawRect(0f, 0f, width.toFloat(), height.toFloat(), bgPaint)
-
-            val gradPaint = Paint().apply {
-                shader = android.graphics.LinearGradient(
-                    0f, 0f, width.toFloat(), height.toFloat(),
-                    AndroidColor.parseColor("#FF4B2B"), AndroidColor.parseColor("#FF416C"),
-                    android.graphics.Shader.TileMode.CLAMP
-                )
+        if (RecordingController.isRecording.value) {
+            val screenIntent = Intent(applicationContext, ScreenRecordService::class.java).apply {
+                action = ScreenRecordService.ACTION_SCREENSHOT
             }
-            canvas.drawCircle(width / 2f, height / 2f, 300f, gradPaint)
-
-            val textPaint = Paint().apply {
-                color = AndroidColor.WHITE
-                textSize = 54f
-                isAntiAlias = true
-                textAlign = Paint.Align.CENTER
-            }
-            canvas.drawText("ScreenPro Snapshot", width / 2f, height / 2f + 20f, textPaint)
-
-            val subPaint = Paint().apply {
-                color = AndroidColor.LTGRAY
-                textSize = 32f
-                isAntiAlias = true
-                textAlign = Paint.Align.CENTER
-            }
-            canvas.drawText(
-                "Captured at ${System.currentTimeMillis()}",
-                width / 2f,
-                height / 2f + 80f,
-                subPaint
-            )
-
-            val uri = mediaStoreRepository.saveScreenshotToMediaStore(
-                bitmap,
-                "ScreenPro_Screenshot_${System.currentTimeMillis()}"
-            )
-
-            withContext(Dispatchers.Main) {
-                Toast.makeText(
-                    this@MainActivity,
-                    if (uri != null) "Screenshot saved to Pictures/ScreenPro" else "Failed to capture screenshot",
-                    Toast.LENGTH_SHORT
-                ).show()
-                refreshMediaItems()
-            }
+            startService(screenIntent)
+            Toast.makeText(this, "Screenshot captured!", Toast.LENGTH_SHORT).show()
+            refreshMediaItems()
+        } else {
+            CaptureLauncherActivity.captureScreenshot(applicationContext)
         }
     }
 
@@ -835,6 +837,24 @@ class MainActivity : ComponentActivity() {
                     mediaItems[idx] = mediaItems[idx].copy(title = newTitle)
                 }
                 Toast.makeText(this@MainActivity, "Renamed to $newTitle", Toast.LENGTH_SHORT).show()
+            }
+        }
+    }
+
+    private fun saveToPhoneGallery(item: MediaItem) {
+        lifecycleScope.launch(Dispatchers.IO) {
+            val savedUri = if (item.type == MediaType.VIDEO) {
+                mediaStoreRepository.saveVideoToPhoneGallery(item)
+            } else {
+                mediaStoreRepository.saveScreenshotToPhoneGallery(item)
+            }
+            withContext(Dispatchers.Main) {
+                if (savedUri != null) {
+                    refreshMediaItems()
+                    Toast.makeText(this@MainActivity, "Video saved in phone gallery!", Toast.LENGTH_SHORT).show()
+                } else {
+                    Toast.makeText(this@MainActivity, "Already saved to phone gallery", Toast.LENGTH_SHORT).show()
+                }
             }
         }
     }

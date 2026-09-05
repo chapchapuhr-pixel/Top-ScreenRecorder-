@@ -335,7 +335,7 @@ fun FloatingControlBall(
                     ) {
                         FloatingToolItem(
                             icon = Icons.Default.CameraAlt,
-                            label = "Capture",
+                            label = "Screenshot",
                             isActive = false,
                             activeColor = Color(0xFF00E5FF),
                             onClick = {
@@ -393,39 +393,44 @@ fun FloatingControlBall(
         }
 
         // Floating Ball (The Draggable Bubble itself) - hidden when expanded so only Ready to Record panel is visible
-        // Also hidden during active recording if hideWhileRecording is set
-        val shouldHideBall = isRecording && !isPaused && hideWhileRecording
-        if (!isExpanded && !shouldHideBall) {
+        // User request: When recording starts, change floating ball camera to small stop 🛑 icon,
+        // even if user chooses to hide floating ball. This allows stopping and saving immediately.
+        if (!isExpanded) {
+            val currentBallSize = if (isRecording) 48.dp else ballSizeDp
             Box(
                 modifier = Modifier
                     .offset { IntOffset(offsetX.roundToInt(), offsetY.roundToInt()) }
-                    .size(ballSizeDp)
-                    .alpha(if (isIdle) 0.55f else 0.95f)
+                    .size(currentBallSize)
+                    .alpha(if (isIdle && !isRecording) 0.6f else 1.0f)
                     .scale(if (isRecording && !isPaused) pulseScale else 1f)
-                    .shadow(10.dp, CircleShape)
+                    .shadow(12.dp, CircleShape)
                     .clip(CircleShape)
                     .background(
                         Brush.radialGradient(
                             colors = if (isRecording) {
                                 if (isPaused) listOf(Color(0xFFFFB300), Color(0xFFE65100))
-                                else listOf(Color(0xFFFF5252), Color(0xFFD50000))
+                                else listOf(Color(0xFFFF1744), Color(0xFFD50000))
                             } else {
                                 listOf(Color(0xFF2A2A2A), Color(0xFF141414))
                             }
                         )
                     )
                     .border(
-                        2.dp,
+                        if (isRecording) 2.5.dp else 2.dp,
                         if (isRecording) {
-                            if (isPaused) Color(0xFFFFD54F) else Color(0xFFFF8A80)
+                            if (isPaused) Color(0xFFFFD54F) else Color.White
                         } else Color(0xFFFF4B2B),
                         CircleShape
                     )
                     .pointerInput(Unit) {
                         detectTapGestures(
                             onTap = {
-                                isExpanded = true
-                                isIdle = false
+                                if (isRecording) {
+                                    onStopRecording()
+                                } else {
+                                    isExpanded = true
+                                    isIdle = false
+                                }
                             }
                         )
                     }
@@ -468,16 +473,18 @@ fun FloatingControlBall(
                         horizontalAlignment = Alignment.CenterHorizontally,
                         verticalArrangement = Arrangement.Center
                     ) {
-                        Icon(
-                            imageVector = if (isPaused) Icons.Default.Pause else Icons.Default.FiberManualRecord,
-                            contentDescription = "Recording Active",
-                            tint = Color.White,
-                            modifier = Modifier.size(18.dp)
+                        // Small Stop 🛑 Icon with Stop square
+                        Box(
+                            modifier = Modifier
+                                .size(15.dp)
+                                .clip(RoundedCornerShape(3.dp))
+                                .background(Color.White)
                         )
+                        Spacer(modifier = Modifier.height(2.dp))
                         Text(
                             text = formatDuration(durationSeconds),
                             color = Color.White,
-                            fontSize = 9.sp,
+                            fontSize = 8.sp,
                             fontWeight = FontWeight.Black
                         )
                     }

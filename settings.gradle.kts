@@ -12,5 +12,5 @@ dependencyResolutionManagement {
         mavenCentral()
     }
 }
-rootProject.name = "ScreenPro"
+rootProject.name = "Free Screen Recorder"
 include(":app")

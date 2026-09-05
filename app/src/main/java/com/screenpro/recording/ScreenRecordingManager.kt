@@ -15,6 +15,7 @@ import android.os.Build
 import android.os.Handler
 import android.os.Looper
 import android.util.Log
+import android.widget.Toast
 import androidx.core.content.ContextCompat
 import com.screenpro.recording.camera.CameraCaptureManager
 import com.screenpro.recording.compositor.ScreenCameraCompositor
@@ -304,8 +305,9 @@ class ScreenRecordingManager(private val context: Context) {
                     }
                 }
 
-                savedUri = mediaStoreRepository.saveVideoToMediaStore(fileToSave)
-                success = savedUri != null
+                val appItem = mediaStoreRepository.saveVideoToAppLibrary(fileToSave)
+                savedUri = appItem.uri
+                success = true
 
                 // Clean up temporary segment files
                 for (f in segmentsToSave) {
@@ -405,7 +407,12 @@ class ScreenRecordingManager(private val context: Context) {
                     val croppedBitmap = Bitmap.createBitmap(bitmap, 0, 0, width, height)
 
                     CoroutineScope(Dispatchers.IO).launch {
-                        mediaStoreRepository.saveScreenshotToMediaStore(croppedBitmap)
+                        val title = "Screenshot_${System.currentTimeMillis()}"
+                        mediaStoreRepository.saveScreenshotToAppLibrary(croppedBitmap, title)
+                        mediaStoreRepository.saveScreenshotToMediaStore(croppedBitmap, title)
+                        withContext(Dispatchers.Main) {
+                            Toast.makeText(context, "Screenshot captured & saved to library!", Toast.LENGTH_SHORT).show()
+                        }
                     }
                 } catch (e: Exception) {
                     Log.e(tag, "Screenshot processing error", e)

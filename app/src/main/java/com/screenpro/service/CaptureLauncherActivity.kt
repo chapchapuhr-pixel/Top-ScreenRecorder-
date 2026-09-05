@@ -251,14 +251,16 @@ class CaptureLauncherActivity : ComponentActivity() {
 
                 CoroutineScope(Dispatchers.IO).launch {
                     val mediaStoreRepository = MediaStoreRepository(applicationContext)
+                    val title = "Screenshot_${System.currentTimeMillis()}"
+                    mediaStoreRepository.saveScreenshotToAppLibrary(cropped, title)
                     val uri = mediaStoreRepository.saveScreenshotToMediaStore(
                         cropped,
-                        "ScreenPro_Screenshot_${System.currentTimeMillis()}"
+                        title
                     )
                     handler.post {
                         Toast.makeText(
                             applicationContext,
-                            if (uri != null) "Screenshot saved to Pictures/ScreenPro" else "Failed to save screenshot",
+                            "Screenshot captured & saved to library!",
                             Toast.LENGTH_SHORT
                         ).show()
                         finishWithNoAnimation()

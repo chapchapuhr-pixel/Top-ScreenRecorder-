@@ -474,7 +474,7 @@ fun SettingsScreen(
                             ) {
                                 Column(modifier = Modifier.weight(1f)) {
                                     Text("Show Floating Ball Across All Apps", color = Color.White, fontWeight = FontWeight.SemiBold)
-                                    Text("Keeps floating icon visible even when ScreenPro is closed, with instant access to record, facecam, and screenshots", color = Color.Gray, fontSize = 12.sp)
+                                    Text("Keeps floating icon visible even when Free Screen Recorder is closed, with instant access to record, facecam, and screenshots", color = Color.Gray, fontSize = 12.sp)
                                 }
                                 Switch(
                                     checked = settings.floatingBallEnabled,
@@ -1029,7 +1029,7 @@ fun SettingsScreen(
                                     )
                                 }
                                 Spacer(modifier = Modifier.height(12.dp))
-                                Text("ScreenPro Recorder", fontWeight = FontWeight.Bold, fontSize = 18.sp, color = Color.White)
+                                Text("Free Screen Recorder", fontWeight = FontWeight.Bold, fontSize = 18.sp, color = Color.White)
                                 Text("Version 2.4.0 (Production Build)", color = Color.Gray, fontSize = 13.sp)
 
                                 Spacer(modifier = Modifier.height(16.dp))
@@ -1071,7 +1071,7 @@ fun SettingsScreen(
             title = { Text("Privacy Policy & Data Safety", color = Color.White) },
             text = {
                 Text(
-                    text = "ScreenPro operates entirely on-device. All captured video recordings and screenshots remain strictly on your local device in Movies/ScreenPro and Pictures/ScreenPro. ScreenPro does not transmit video, audio, or telemetry to external servers. Permissions for MediaProjection and Microphone are exclusively used during active user-initiated recording sessions.",
+                    text = "Free Screen Recorder operates entirely on-device. All captured video recordings and screenshots remain strictly on your local device. Free Screen Recorder does not transmit video, audio, or telemetry to external servers. Permissions for MediaProjection and Microphone are exclusively used during active user-initiated recording sessions.",
                     color = Color.LightGray,
                     fontSize = 13.sp,
                     lineHeight = 18.sp

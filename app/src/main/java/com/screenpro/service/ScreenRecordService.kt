@@ -359,7 +359,7 @@ class ScreenRecordService : Service() {
         val isFaceCamHidden = com.screenpro.recording.FaceCamController.isFaceCamHidden.value
 
         val builder = NotificationCompat.Builder(this, CHANNEL_ID)
-            .setContentTitle("ScreenPro Pro Recording")
+            .setContentTitle("Free Screen Recording")
             .setContentText(if (isPaused) "Paused • $timeStr (Shake phone to stop)" else "Recording • $timeStr (Shake phone to stop)")
             .setSmallIcon(R.drawable.ic_notification_record)
             .setContentIntent(openIntent)
