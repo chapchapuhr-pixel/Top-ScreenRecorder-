@@ -73,10 +73,11 @@ dependencies {
     implementation(libs.androidx.camera.lifecycle)
     implementation(libs.androidx.camera.view)
 
-    // Media3 ExoPlayer & Transformer
+    // Media3 ExoPlayer, Transformer & Effects
     implementation(libs.androidx.media3.exoplayer)
     implementation(libs.androidx.media3.ui)
     implementation(libs.androidx.media3.transformer)
+    implementation(libs.androidx.media3.effect)
 
     // Coroutines & StateFlow
     implementation(libs.kotlinx.coroutines.android)
