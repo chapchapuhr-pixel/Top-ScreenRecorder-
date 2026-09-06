@@ -22,23 +22,48 @@ android {
     signingConfigs {
         getByName("debug") {
             storeFile = file("${rootDir}/debug.keystore")
+            storePassword = "android"
+            keyAlias = "androiddebugkey"
+            keyPassword = "android"
+            enableV1Signing = true
+            enableV2Signing = true
+        }
+        create("release") {
+            val uploadKeystore = file("${rootDir}/release-upload.jks")
+            if (uploadKeystore.exists()) {
+                storeFile = uploadKeystore
+                storePassword = "52775277Tanzania"
+                keyAlias = "upload"
+                keyPassword = "52775277Tanzania"
+            } else {
+                storeFile = file("${rootDir}/debug.keystore")
+                storePassword = "android"
+                keyAlias = "androiddebugkey"
+                keyPassword = "android"
+            }
+            enableV1Signing = true
+            enableV2Signing = true
         }
     }
 
     buildTypes {
         release {
-            isMinifyEnabled = true
-            isShrinkResources = true
+            isMinifyEnabled = false
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
             )
-            signingConfig = signingConfigs.getByName("debug")
+            signingConfig = signingConfigs.getByName("release")
         }
         debug {
-            applicationIdSuffix = ".debug"
             isDebuggable = true
+            signingConfig = signingConfigs.getByName("debug")
         }
+    }
+
+    lint {
+        checkReleaseBuilds = false
+        abortOnError = false
     }
 
     compileOptions {

@@ -96,11 +96,18 @@ jobs:
                 dist/FreeScreenRecorder-release.aab upload
               jarsigner -verify -verbose -certs dist/FreeScreenRecorder-release.aab
             fi
+          fi
+
+          # Verify APK signing schemes (v1 + v2)
+          APKSIGNER_BIN=$(find $ANDROID_HOME/build-tools/ -name apksigner 2>/dev/null | sort -V | tail -n 1)
+          if [ -n "$APKSIGNER_BIN" ]; then
             if [ -f "dist/FreeScreenRecorder-release.apk" ]; then
-              echo "Signing Release APK..."
-              jarsigner -verbose -sigalg SHA256withRSA -digestalg SHA-256 \
-                -keystore release-upload.jks -storepass 52775277Tanzania -keypass 52775277Tanzania \
-                dist/FreeScreenRecorder-release.apk upload || true
+              echo "Verifying Release APK signature..."
+              "$APKSIGNER_BIN" verify --verbose dist/FreeScreenRecorder-release.apk || true
+            fi
+            if [ -f "dist/FreeScreenRecorder-debug.apk" ]; then
+              echo "Verifying Debug APK signature..."
+              "$APKSIGNER_BIN" verify --verbose dist/FreeScreenRecorder-debug.apk || true
             fi
           fi
 

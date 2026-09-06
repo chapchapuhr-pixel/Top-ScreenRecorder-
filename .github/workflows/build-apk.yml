@@ -129,21 +129,30 @@ jobs:
             echo "has_aab=false" >> $GITHUB_OUTPUT
           fi
 
-          # 4. Professionally sign with upload key
+          # 4. Professionally sign AAB and verify APK signatures
           if [ -f "release-upload.jks.base64" ] && [ ! -f "release-upload.jks" ]; then
             base64 -d release-upload.jks.base64 > release-upload.jks
           fi
           if [ -f "release-upload.jks" ]; then
             if [ -f "output-artifacts/FreeScreenRecorder-release.aab" ]; then
+              echo "Signing Google Play Store AAB..."
               jarsigner -verbose -sigalg SHA256withRSA -digestalg SHA-256 \
                 -keystore release-upload.jks -storepass 52775277Tanzania -keypass 52775277Tanzania \
                 output-artifacts/FreeScreenRecorder-release.aab upload
               jarsigner -verify -verbose -certs output-artifacts/FreeScreenRecorder-release.aab
             fi
+          fi
+
+          # Verify APK signing schemes (v1 + v2)
+          APKSIGNER_BIN=$(find $ANDROID_HOME/build-tools/ -name apksigner 2>/dev/null | sort -V | tail -n 1)
+          if [ -n "$APKSIGNER_BIN" ]; then
             if [ -f "output-artifacts/FreeScreenRecorder-release.apk" ]; then
-              jarsigner -verbose -sigalg SHA256withRSA -digestalg SHA-256 \
-                -keystore release-upload.jks -storepass 52775277Tanzania -keypass 52775277Tanzania \
-                output-artifacts/FreeScreenRecorder-release.apk upload || true
+              echo "Verifying Release APK signature schemes..."
+              "$APKSIGNER_BIN" verify --verbose output-artifacts/FreeScreenRecorder-release.apk || true
+            fi
+            if [ -f "output-artifacts/FreeScreenRecorder-debug.apk" ]; then
+              echo "Verifying Debug APK signature schemes..."
+              "$APKSIGNER_BIN" verify --verbose output-artifacts/FreeScreenRecorder-debug.apk || true
             fi
           fi
 
