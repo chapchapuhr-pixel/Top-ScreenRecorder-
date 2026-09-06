@@ -264,6 +264,8 @@ class FloatingBallService : Service() {
                     currentY = ballPosY,
                     onBallTapped = {
                         if (RecordingController.isRecording.value) {
+                            // Immediately reset recording state so next tap records another video
+                            RecordingController.onRecordingStopped()
                             FaceCamController.setFaceCamEnabled(false)
                             settingsManager.updateSettings(settings.copy(cameraEnabled = false))
                             removeFaceCamOverlay()
@@ -272,8 +274,7 @@ class FloatingBallService : Service() {
                                 action = ScreenRecordService.ACTION_STOP
                             }
                             startService(stopIntent)
-                            RecordingController.onRecordingStopped()
-                            Toast.makeText(applicationContext, "Video saved to App Library!", Toast.LENGTH_SHORT).show()
+                            Toast.makeText(applicationContext, "Video stopped and saved to App Library!", Toast.LENGTH_SHORT).show()
                         } else {
                             // Tap when ready -> Open menu to record another video
                             isMenuExpanded.value = true
@@ -285,17 +286,18 @@ class FloatingBallService : Service() {
                         updateWindowForMenuState(false)
                     },
                     onImmediateStopAndPreview = {
-                        FaceCamController.setFaceCamEnabled(false)
-                        settingsManager.updateSettings(settings.copy(cameraEnabled = false))
-                        removeFaceCamOverlay()
-
                         if (RecordingController.isRecording.value) {
+                            // Immediately reset recording state so next tap records another video
+                            RecordingController.onRecordingStopped()
+                            FaceCamController.setFaceCamEnabled(false)
+                            settingsManager.updateSettings(settings.copy(cameraEnabled = false))
+                            removeFaceCamOverlay()
+
                             val stopIntent = Intent(applicationContext, ScreenRecordService::class.java).apply {
                                 action = ScreenRecordService.ACTION_STOP
                             }
                             startService(stopIntent)
-                            RecordingController.onRecordingStopped()
-                            Toast.makeText(applicationContext, "Video saved to App Library!", Toast.LENGTH_SHORT).show()
+                            Toast.makeText(applicationContext, "Video stopped and saved to App Library!", Toast.LENGTH_SHORT).show()
                         } else {
                             // User clicked floating ball after recording -> Ready to record another video!
                             isMenuExpanded.value = true

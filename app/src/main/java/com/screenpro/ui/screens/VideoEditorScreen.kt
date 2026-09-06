@@ -517,6 +517,67 @@ fun VideoEditorScreen(
                         },
                         modifier = Modifier.fillMaxSize()
                     )
+
+                    // Real-time Visual Filter Preview Layer (instantly transforms live playing video)
+                    if (isBlackAndWhite || filterMode == "sepia" || (filterMode == "custom" && saturationLevel < 0.98f)) {
+                        Canvas(
+                            modifier = Modifier.fillMaxSize()
+                        ) {
+                            when {
+                                filterMode == "sepia" -> {
+                                    // Grayscale base + warm vintage sepia tone
+                                    drawRect(color = Color.Black, blendMode = androidx.compose.ui.graphics.BlendMode.Color)
+                                    drawRect(color = Color(0xFF704214).copy(alpha = 0.5f), blendMode = androidx.compose.ui.graphics.BlendMode.Color)
+                                }
+                                filterMode == "noir" -> {
+                                    // High contrast deep noir black and white
+                                    drawRect(color = Color.Black, blendMode = androidx.compose.ui.graphics.BlendMode.Color)
+                                    drawRect(color = Color.Black.copy(alpha = 0.35f), blendMode = androidx.compose.ui.graphics.BlendMode.Overlay)
+                                }
+                                isBlackAndWhite -> {
+                                    // 100% Pure Black and White
+                                    drawRect(color = Color.Black, blendMode = androidx.compose.ui.graphics.BlendMode.Color)
+                                }
+                                filterMode == "custom" -> {
+                                    val desatAlpha = (1f - saturationLevel).coerceIn(0f, 1f)
+                                    if (desatAlpha > 0.02f) {
+                                        drawRect(color = Color.Black.copy(alpha = desatAlpha), blendMode = androidx.compose.ui.graphics.BlendMode.Color)
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+
+                // Real-time Trim Preview Banner (Active when Trim tab is selected)
+                if (selectedTab == "trim") {
+                    Surface(
+                        shape = RoundedCornerShape(12.dp),
+                        color = Color(0xEE1E1E1E),
+                        border = BorderStroke(1.5.dp, Color(0xFFFF4B2B)),
+                        modifier = Modifier
+                            .align(Alignment.TopCenter)
+                            .padding(top = 12.dp)
+                    ) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp)
+                        ) {
+                            Icon(
+                                Icons.Default.ContentCut,
+                                contentDescription = null,
+                                tint = Color(0xFFFF4B2B),
+                                modifier = Modifier.size(16.dp)
+                            )
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text(
+                                text = "Previewing Trim: ${String.format("%.1f", trimStartSec)}s - ${String.format("%.1f", trimEndSec)}s",
+                                color = Color.White,
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.Bold
+                            )
+                        }
+                    }
                 }
 
                 // Real-time Status Badges (Filter, Trim Cut, Mute)

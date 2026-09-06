@@ -18,6 +18,7 @@ import android.util.Log
 import android.widget.Toast
 import androidx.core.content.ContextCompat
 import com.screenpro.recording.camera.CameraCaptureManager
+import com.screenpro.recording.camera.DualCameraCaptureManager
 import com.screenpro.recording.compositor.ScreenCameraCompositor
 import com.screenpro.storage.MediaStoreRepository
 import kotlinx.coroutines.CoroutineScope
@@ -50,14 +51,32 @@ class ScreenRecordingManager(private val context: Context) {
         val fps: Int,
         val bitrate: Int,
         val enableMic: Boolean,
+        val enableFaceCam: Boolean = false,
+        val cameraMode: String = "off", // "off", "facecam", "rear", "dual", "dual_only"
+        val dualCameraLayout: String = "pip", // "pip", "split_horizontal", "split_vertical", "dual_bubbles"
+        val cameraIsFront: Boolean = true,
+        val cameraShape: String = "circle",
+        val cameraPositionX: Float = 0.75f,
+        val cameraPositionY: Float = 0.08f,
+        val cameraScale: Float = 0.26f,
+        val cameraBorderWidth: Int = 3,
+        val cameraBorderColor: String = "#FF4B2B",
+        val cameraMirrored: Boolean = true,
+        val secondaryCameraShape: String = "circle",
+        val secondaryCameraPositionX: Float = 0.08f,
+        val secondaryCameraPositionY: Float = 0.08f,
+        val secondaryCameraScale: Float = 0.22f,
+        val secondaryCameraBorderWidth: Int = 3,
+        val secondaryCameraBorderColor: String = "#00E5FF",
+        val secondaryCameraMirrored: Boolean = false,
         val audioBitrate: Int = 192_000,
         val audioSampleRate: Int = 48_000,
         val audioChannels: Int = 2
     )
 
-    // Facecam compositing pipeline
+    // Facecam & Dual Camera compositing pipeline
     private var compositor: ScreenCameraCompositor? = null
-    private var cameraCaptureManager: CameraCaptureManager? = null
+    private var dualCameraCaptureManager: DualCameraCaptureManager? = null
 
     fun setMediaProjection(projection: MediaProjection?) {
         this.mediaProjection = projection
@@ -65,6 +84,10 @@ class ScreenRecordingManager(private val context: Context) {
 
     fun updateFaceCamPosition(xPercent: Float, yPercent: Float) {
         compositor?.updatePosition(xPercent, yPercent)
+    }
+
+    fun updateSecondaryFaceCamPosition(xPercent: Float, yPercent: Float) {
+        compositor?.updateSecondaryPosition(xPercent, yPercent)
     }
 
     fun updateFaceCamConfig(
@@ -75,9 +98,35 @@ class ScreenRecordingManager(private val context: Context) {
         scale: Float,
         borderWidthDp: Int,
         borderColorHex: String,
-        isMirrored: Boolean
+        isMirrored: Boolean,
+        mode: String = "facecam",
+        layout: String = "pip"
     ) {
         compositor?.updateConfig(
+            enabled = enabled,
+            shape = shape,
+            posX = posX,
+            posY = posY,
+            scale = scale,
+            borderWidthDp = borderWidthDp,
+            borderColorHex = borderColorHex,
+            isMirrored = isMirrored,
+            mode = mode,
+            layout = layout
+        )
+    }
+
+    fun updateSecondaryFaceCamConfig(
+        enabled: Boolean,
+        shape: String,
+        posX: Float,
+        posY: Float,
+        scale: Float,
+        borderWidthDp: Int,
+        borderColorHex: String,
+        isMirrored: Boolean
+    ) {
+        compositor?.updateSecondaryConfig(
             enabled = enabled,
             shape = shape,
             posX = posX,
@@ -96,6 +145,9 @@ class ScreenRecordingManager(private val context: Context) {
         bitrate: Int,
         enableMic: Boolean,
         enableFaceCam: Boolean = false,
+        cameraMode: String = if (enableFaceCam) "facecam" else "off",
+        dualCameraLayout: String = "pip",
+        cameraIsFront: Boolean = true,
         cameraShape: String = "circle",
         cameraPositionX: Float = 0.75f,
         cameraPositionY: Float = 0.08f,
@@ -103,6 +155,13 @@ class ScreenRecordingManager(private val context: Context) {
         cameraBorderWidth: Int = 3,
         cameraBorderColor: String = "#FF4B2B",
         cameraMirrored: Boolean = true,
+        secondaryCameraShape: String = "circle",
+        secondaryCameraPositionX: Float = 0.08f,
+        secondaryCameraPositionY: Float = 0.08f,
+        secondaryCameraScale: Float = 0.22f,
+        secondaryCameraBorderWidth: Int = 3,
+        secondaryCameraBorderColor: String = "#00E5FF",
+        secondaryCameraMirrored: Boolean = false,
         audioBitrate: Int = 192_000,
         audioSampleRate: Int = 48_000,
         audioChannels: Int = 2
@@ -114,6 +173,24 @@ class ScreenRecordingManager(private val context: Context) {
             fps = fps,
             bitrate = bitrate,
             enableMic = enableMic,
+            enableFaceCam = enableFaceCam,
+            cameraMode = cameraMode,
+            dualCameraLayout = dualCameraLayout,
+            cameraIsFront = cameraIsFront,
+            cameraShape = cameraShape,
+            cameraPositionX = cameraPositionX,
+            cameraPositionY = cameraPositionY,
+            cameraScale = cameraScale,
+            cameraBorderWidth = cameraBorderWidth,
+            cameraBorderColor = cameraBorderColor,
+            cameraMirrored = cameraMirrored,
+            secondaryCameraShape = secondaryCameraShape,
+            secondaryCameraPositionX = secondaryCameraPositionX,
+            secondaryCameraPositionY = secondaryCameraPositionY,
+            secondaryCameraScale = secondaryCameraScale,
+            secondaryCameraBorderWidth = secondaryCameraBorderWidth,
+            secondaryCameraBorderColor = secondaryCameraBorderColor,
+            secondaryCameraMirrored = secondaryCameraMirrored,
             audioBitrate = audioBitrate,
             audioSampleRate = audioSampleRate,
             audioChannels = audioChannels
@@ -189,17 +266,82 @@ class ScreenRecordingManager(private val context: Context) {
             recorder.prepare()
 
             val densityDpi = context.resources.displayMetrics.densityDpi
+            val isCameraActive = params.enableFaceCam || (params.cameraMode != "off")
+            val isDualOnly = (params.cameraMode == "dual_only")
 
-            virtualDisplay = projection.createVirtualDisplay(
-                "ScreenProCaptureDisplay",
-                encWidth,
-                encHeight,
-                densityDpi,
-                DisplayManager.VIRTUAL_DISPLAY_FLAG_AUTO_MIRROR,
-                recorder.surface,
-                null,
-                null
-            )
+            if (isCameraActive) {
+                val comp = ScreenCameraCompositor(
+                    outputSurface = recorder.surface,
+                    videoWidth = encWidth,
+                    videoHeight = encHeight,
+                    targetFps = params.fps
+                )
+                comp.updateConfig(
+                    enabled = true,
+                    shape = params.cameraShape,
+                    posX = params.cameraPositionX,
+                    posY = params.cameraPositionY,
+                    scale = params.cameraScale,
+                    borderWidthDp = params.cameraBorderWidth,
+                    borderColorHex = params.cameraBorderColor,
+                    isMirrored = params.cameraMirrored,
+                    mode = params.cameraMode,
+                    layout = params.dualCameraLayout
+                )
+                if (params.cameraMode == "dual" || params.cameraMode == "dual_only") {
+                    comp.updateSecondaryConfig(
+                        enabled = true,
+                        shape = params.secondaryCameraShape,
+                        posX = params.secondaryCameraPositionX,
+                        posY = params.secondaryCameraPositionY,
+                        scale = params.secondaryCameraScale,
+                        borderWidthDp = params.secondaryCameraBorderWidth,
+                        borderColorHex = params.secondaryCameraBorderColor,
+                        isMirrored = params.secondaryCameraMirrored
+                    )
+                }
+                comp.start()
+                this.compositor = comp
+
+                if (!isDualOnly) {
+                    virtualDisplay = projection.createVirtualDisplay(
+                        "ScreenProCaptureDisplay",
+                        encWidth,
+                        encHeight,
+                        densityDpi,
+                        DisplayManager.VIRTUAL_DISPLAY_FLAG_AUTO_MIRROR,
+                        comp.screenSurface!!,
+                        null,
+                        null
+                    )
+                }
+
+                val camMgr = DualCameraCaptureManager(context)
+                this.dualCameraCaptureManager = camMgr
+                if (params.cameraMode == "dual" || params.cameraMode == "dual_only") {
+                    camMgr.startDualCapture(
+                        primarySurface = comp.camera1Surface!!,
+                        secondarySurface = comp.camera2Surface!!,
+                        primaryIsFront = params.cameraIsFront
+                    )
+                } else {
+                    camMgr.startSingleCapture(
+                        targetSurface = comp.camera1Surface!!,
+                        useFrontCamera = params.cameraIsFront
+                    )
+                }
+            } else {
+                virtualDisplay = projection.createVirtualDisplay(
+                    "ScreenProCaptureDisplay",
+                    encWidth,
+                    encHeight,
+                    densityDpi,
+                    DisplayManager.VIRTUAL_DISPLAY_FLAG_AUTO_MIRROR,
+                    recorder.surface,
+                    null,
+                    null
+                )
+            }
 
             recorder.start()
             this.mediaRecorder = recorder
@@ -218,6 +360,16 @@ class ScreenRecordingManager(private val context: Context) {
     fun holdAndPreviewSegment(onSegmentReady: (File, Uri) -> Unit) {
         val recorder = mediaRecorder
         val segFile = currentOutputFile
+
+        try {
+            dualCameraCaptureManager?.stopCapture()
+        } catch (_: Exception) {}
+        dualCameraCaptureManager = null
+
+        try {
+            compositor?.stop()
+        } catch (_: Exception) {}
+        compositor = null
 
         try {
             recorder?.stop()
@@ -427,9 +579,9 @@ class ScreenRecordingManager(private val context: Context) {
 
     private fun release() {
         try {
-            cameraCaptureManager?.stopCapture()
+            dualCameraCaptureManager?.stopCapture()
         } catch (_: Exception) {}
-        cameraCaptureManager = null
+        dualCameraCaptureManager = null
 
         try {
             compositor?.stop()
