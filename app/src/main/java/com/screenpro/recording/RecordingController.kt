@@ -97,6 +97,7 @@ object RecordingController {
         _latestRecordedSegmentUri.value = null
         timerJob?.cancel()
         timerJob = null
+        FaceCamController.setFaceCamEnabled(false)
     }
 
     fun setError(error: String?) {

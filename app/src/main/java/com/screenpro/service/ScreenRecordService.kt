@@ -305,6 +305,13 @@ class ScreenRecordService : Service() {
     }
 
     private fun stopRecordingForeground() {
+        // Immediately dismiss facecam overlay when recording finishes
+        com.screenpro.recording.FaceCamController.setFaceCamEnabled(false)
+        try {
+            val sm = com.screenpro.data.SettingsManager(applicationContext)
+            sm.updateSettings(sm.settings.value.copy(cameraEnabled = false))
+        } catch (_: Exception) {}
+
         tearDownShakeDetector()
         TouchVisualizerHelper.restoreTouchesAfterRecording(this)
         recordingManager.stopRecording { success, uri ->

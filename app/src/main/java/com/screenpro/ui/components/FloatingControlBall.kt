@@ -422,7 +422,7 @@ fun FloatingControlBall(
                         } else Color(0xFFFF4B2B),
                         CircleShape
                     )
-                    .pointerInput(Unit) {
+                    .pointerInput(isRecording) {
                         detectTapGestures(
                             onTap = {
                                 if (isRecording) {
@@ -430,6 +430,11 @@ fun FloatingControlBall(
                                 } else {
                                     isExpanded = true
                                     isIdle = false
+                                }
+                            },
+                            onDoubleTap = {
+                                if (!isRecording) {
+                                    onStartRecording()
                                 }
                             }
                         )

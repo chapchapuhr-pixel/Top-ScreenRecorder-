@@ -744,6 +744,8 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun stopRecording() {
+        com.screenpro.recording.FaceCamController.setFaceCamEnabled(false)
+        settingsManager.updateSettings(settingsManager.settings.value.copy(cameraEnabled = false))
         val stopIntent = Intent(this, ScreenRecordService::class.java).apply {
             action = ScreenRecordService.ACTION_STOP
         }

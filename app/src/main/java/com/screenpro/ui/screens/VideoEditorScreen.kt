@@ -58,6 +58,7 @@ import com.screenpro.storage.MediaStoreRepository
 import com.screenpro.video.VideoProcessingHelper
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.File
@@ -200,6 +201,34 @@ fun VideoEditorScreen(
                     android.graphics.ColorMatrixColorFilter(cm)
                 }
                 else -> null
+            }
+        }
+    }
+
+    var isPreviewingCut by remember { mutableStateOf(true) }
+
+    // Live video filter effect application in ExoPlayer pipeline
+    LaunchedEffect(filterMode, saturationLevel) {
+        try {
+            if (filterMode == "bw" || filterMode == "noir" || (filterMode == "custom" && saturationLevel <= 0.05f)) {
+                exoPlayer.setVideoEffects(listOf(androidx.media3.effect.RgbFilter.createGrayscaleFilter()))
+            } else {
+                exoPlayer.setVideoEffects(emptyList())
+            }
+        } catch (_: Exception) {}
+    }
+
+    // Real-time playback loop strictly previewing the trimmed range
+    LaunchedEffect(trimStartSec, trimEndSec, isPlaying, isPreviewingCut) {
+        val startMs = (trimStartSec * 1000).toLong()
+        val endMs = (trimEndSec * 1000).toLong().coerceAtLeast(startMs + 500)
+        while (isActive) {
+            delay(35)
+            if (exoPlayer.isPlaying && isPreviewingCut) {
+                val current = exoPlayer.currentPosition
+                if (current >= endMs || current < startMs) {
+                    exoPlayer.seekTo(startMs)
+                }
             }
         }
     }
@@ -464,7 +493,11 @@ fun VideoEditorScreen(
                 ) {
                     AndroidView(
                         factory = { ctx ->
-                            PlayerView(ctx).apply {
+                            val view = android.view.LayoutInflater.from(ctx).inflate(
+                                com.screenpro.R.layout.layout_player_texture_view,
+                                null
+                            ) as PlayerView
+                            view.apply {
                                 player = exoPlayer
                                 useController = false
                             }
@@ -476,34 +509,70 @@ fun VideoEditorScreen(
                                     colorFilter = filter
                                 }
                                 playerView.setLayerType(android.view.View.LAYER_TYPE_HARDWARE, paint)
+                                playerView.videoSurfaceView?.setLayerType(android.view.View.LAYER_TYPE_HARDWARE, paint)
                             } else {
                                 playerView.setLayerType(android.view.View.LAYER_TYPE_NONE, null)
+                                playerView.videoSurfaceView?.setLayerType(android.view.View.LAYER_TYPE_NONE, null)
                             }
                         },
                         modifier = Modifier.fillMaxSize()
                     )
                 }
 
-                // Black & White / Mute Status Badges
+                // Real-time Status Badges (Filter, Trim Cut, Mute)
                 Row(
                     modifier = Modifier
                         .align(Alignment.TopEnd)
                         .padding(12.dp),
                     horizontalArrangement = Arrangement.spacedBy(6.dp)
                 ) {
-                    if (isBlackAndWhite) {
+                    if (filterMode != "none" || (filterMode == "custom" && saturationLevel != 1.0f)) {
                         Surface(
                             shape = RoundedCornerShape(10.dp),
-                            color = Color(0xCC212121),
-                            border = BorderStroke(1.dp, Color.White.copy(alpha = 0.5f))
+                            color = Color(0xDD1E1E1E),
+                            border = BorderStroke(1.dp, Color(0xFFFFB300))
                         ) {
                             Row(
                                 verticalAlignment = Alignment.CenterVertically,
                                 modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
                             ) {
-                                Icon(Icons.Default.FilterBAndW, contentDescription = null, tint = Color.White, modifier = Modifier.size(13.dp))
+                                val filterIcon = when (filterMode) {
+                                    "bw" -> Icons.Default.FilterBAndW
+                                    "noir" -> Icons.Default.Contrast
+                                    "sepia" -> Icons.Default.AutoAwesome
+                                    else -> Icons.Default.Tune
+                                }
+                                val filterTitle = when (filterMode) {
+                                    "bw" -> "Classic B&W Active"
+                                    "noir" -> "Noir B&W Active"
+                                    "sepia" -> "Sepia Active"
+                                    else -> "Saturation ${(saturationLevel * 100).toInt()}%"
+                                }
+                                Icon(filterIcon, contentDescription = null, tint = Color(0xFFFFB300), modifier = Modifier.size(13.dp))
                                 Spacer(modifier = Modifier.width(4.dp))
-                                Text("B&W Active", color = Color.White, fontSize = 10.sp, fontWeight = FontWeight.Bold)
+                                Text(filterTitle, color = Color.White, fontSize = 10.sp, fontWeight = FontWeight.Bold)
+                            }
+                        }
+                    }
+
+                    if (selectedTab == "trim" || trimStartSec > 0.05f || trimEndSec < (durationMs / 1000f) - 0.1f) {
+                        Surface(
+                            shape = RoundedCornerShape(10.dp),
+                            color = Color(0xDD1E1E1E),
+                            border = BorderStroke(1.dp, Color(0xFFFF4B2B))
+                        ) {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+                            ) {
+                                Icon(Icons.Default.ContentCut, contentDescription = null, tint = Color(0xFFFF4B2B), modifier = Modifier.size(13.dp))
+                                Spacer(modifier = Modifier.width(4.dp))
+                                Text(
+                                    "Cut: ${String.format("%.1f", trimStartSec)}s - ${String.format("%.1f", trimEndSec)}s",
+                                    color = Color.White,
+                                    fontSize = 10.sp,
+                                    fontWeight = FontWeight.Bold
+                                )
                             }
                         }
                     }
@@ -1101,6 +1170,7 @@ fun VideoEditorScreen(
                                     value = trimEndSec,
                                     onValueChange = {
                                         trimEndSec = it.coerceAtLeast(trimStartSec + 0.5f)
+                                        exoPlayer.seekTo((trimEndSec * 1000).toLong())
                                     },
                                     valueRange = 0f..maxDurationSec,
                                     modifier = Modifier.weight(1f),
@@ -1109,6 +1179,84 @@ fun VideoEditorScreen(
                                         activeTrackColor = Color(0xFFFF4B2B)
                                     )
                                 )
+                            }
+
+                            Spacer(modifier = Modifier.height(8.dp))
+
+                            // Visual Cut Segment Timeline Track
+                            BoxWithConstraints(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .height(8.dp)
+                                    .clip(RoundedCornerShape(4.dp))
+                                    .background(Color(0xFF2C2C2C))
+                            ) {
+                                val totalWidth = maxWidth
+                                val totalSec = maxDurationSec.coerceAtLeast(0.1f)
+                                val startFraction = (trimStartSec / totalSec).coerceIn(0f, 1f)
+                                val endFraction = (trimEndSec / totalSec).coerceIn(0f, 1f)
+                                val cutWidth = totalWidth * (endFraction - startFraction).coerceAtLeast(0f)
+                                val startOffset = totalWidth * startFraction
+
+                                Box(
+                                    modifier = Modifier
+                                        .offset(x = startOffset)
+                                        .width(cutWidth)
+                                        .fillMaxHeight()
+                                        .background(Color(0xFFFF4B2B))
+                                )
+                            }
+
+                            Spacer(modifier = Modifier.height(10.dp))
+
+                            // Play/Pause Cut Preview Actions
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Button(
+                                    onClick = {
+                                        if (isPlaying && isPreviewingCut) {
+                                            exoPlayer.pause()
+                                            isPlaying = false
+                                        } else {
+                                            exoPlayer.seekTo((trimStartSec * 1000).toLong())
+                                            exoPlayer.play()
+                                            isPlaying = true
+                                            isPreviewingCut = true
+                                        }
+                                    },
+                                    modifier = Modifier.weight(1f),
+                                    shape = RoundedCornerShape(10.dp),
+                                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFFF4B2B))
+                                ) {
+                                    Icon(
+                                        if (isPlaying && isPreviewingCut) Icons.Default.Pause else Icons.Default.PlayArrow,
+                                        contentDescription = null,
+                                        tint = Color.White,
+                                        modifier = Modifier.size(18.dp)
+                                    )
+                                    Spacer(modifier = Modifier.width(6.dp))
+                                    Text(
+                                        text = if (isPlaying && isPreviewingCut) "Pause Cut Loop" else "Preview Cut Video (${String.format("%.1f", (trimEndSec - trimStartSec).coerceAtLeast(0f))}s)",
+                                        fontSize = 12.sp,
+                                        fontWeight = FontWeight.Bold
+                                    )
+                                }
+
+                                OutlinedButton(
+                                    onClick = {
+                                        trimStartSec = 0f
+                                        trimEndSec = maxDurationSec
+                                        exoPlayer.seekTo(0)
+                                        Toast.makeText(context, "Cut reset to full video", Toast.LENGTH_SHORT).show()
+                                    },
+                                    shape = RoundedCornerShape(10.dp),
+                                    border = BorderStroke(1.dp, Color.Gray)
+                                ) {
+                                    Text("Reset", color = Color.White, fontSize = 12.sp)
+                                }
                             }
                         }
                     }
@@ -1255,9 +1403,13 @@ fun VideoEditorScreen(
                                         modifier = Modifier
                                             .clickable {
                                                 filterMode = mode
-                                                if (mode == "bw" || mode == "noir") {
-                                                    Toast.makeText(context, "$label activated!", Toast.LENGTH_SHORT).show()
+                                                when (mode) {
+                                                    "none" -> saturationLevel = 1.0f
+                                                    "bw" -> saturationLevel = 0.0f
+                                                    "noir" -> saturationLevel = 0.0f
+                                                    "sepia" -> saturationLevel = 0.8f
                                                 }
+                                                Toast.makeText(context, "$label applied to preview!", Toast.LENGTH_SHORT).show()
                                             }
                                             .padding(2.dp)
                                     ) {
