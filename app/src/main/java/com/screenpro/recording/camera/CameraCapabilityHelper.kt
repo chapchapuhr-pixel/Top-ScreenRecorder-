@@ -129,7 +129,7 @@ object CameraCapabilityHelper {
                             frontCameraId = setFrontId ?: frontId,
                             rearCameraId = setRearId ?: rearId,
                             availableCameras = cameraList,
-                            statusMessage = "Concurrent front + rear camera is hardware-supported!",
+                            statusMessage = "Dual camera hardware supported",
                             isApiSupported = true
                         )
                     }
@@ -141,7 +141,7 @@ object CameraCapabilityHelper {
                     frontCameraId = frontId,
                     rearCameraId = rearId,
                     availableCameras = cameraList,
-                    statusMessage = "Hardware OEM did not enable concurrent dual camera streaming. High-performance single FaceCam is active.",
+                    statusMessage = "Dual Camera isn't supported on this device.",
                     isApiSupported = true
                 )
             } catch (e: Exception) {
@@ -151,7 +151,7 @@ object CameraCapabilityHelper {
                     frontCameraId = frontId,
                     rearCameraId = rearId,
                     availableCameras = cameraList,
-                    statusMessage = "Concurrent dual camera API error. High-performance single FaceCam is active.",
+                    statusMessage = "Dual Camera isn't supported on this device.",
                     isApiSupported = true
                 )
             }
@@ -162,7 +162,7 @@ object CameraCapabilityHelper {
                 frontCameraId = frontId,
                 rearCameraId = rearId,
                 availableCameras = cameraList,
-                statusMessage = "Concurrent dual camera requires Android 11+ (API 30). High-performance single FaceCam is active.",
+                statusMessage = "Dual Camera isn't supported on this device.",
                 isApiSupported = false
             )
         }

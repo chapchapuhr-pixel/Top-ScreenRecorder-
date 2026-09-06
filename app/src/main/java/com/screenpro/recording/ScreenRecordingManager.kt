@@ -80,6 +80,15 @@ class ScreenRecordingManager(private val context: Context) {
 
     fun setMediaProjection(projection: MediaProjection?) {
         this.mediaProjection = projection
+        try {
+            projection?.registerCallback(object : MediaProjection.Callback() {
+                override fun onStop() {
+                    Log.d(tag, "MediaProjection stopped by system")
+                }
+            }, Handler(Looper.getMainLooper()))
+        } catch (e: Exception) {
+            Log.w(tag, "Failed to register callback on MediaProjection: ${e.message}")
+        }
     }
 
     fun updateFaceCamPosition(xPercent: Float, yPercent: Float) {
@@ -201,9 +210,12 @@ class ScreenRecordingManager(private val context: Context) {
 
     private fun startRecorderInternal(params: RecordingParams) {
         val projection = mediaProjection ?: run {
-            Log.e(tag, "Cannot start recording: MediaProjection is null")
-            RecordingController.setError("MediaProjection not initialized")
-            return
+            if (params.cameraMode != "dual_only") {
+                Log.e(tag, "Cannot start recording: MediaProjection is null")
+                RecordingController.setError("MediaProjection not initialized")
+                return
+            }
+            null
         }
 
         try {
@@ -229,7 +241,18 @@ class ScreenRecordingManager(private val context: Context) {
                     recorder.setAudioSource(MediaRecorder.AudioSource.MIC)
                     audioConfigured = true
                 } catch (e: Exception) {
-                    Log.w(tag, "Microphone audio source unavailable, falling back to video only: ${e.message}")
+                    Log.w(tag, "Microphone audio source unavailable, trying DEFAULT source: ${e.message}")
+                    try {
+                        recorder.setAudioSource(MediaRecorder.AudioSource.DEFAULT)
+                        audioConfigured = true
+                    } catch (e2: Exception) {
+                        try {
+                            recorder.setAudioSource(MediaRecorder.AudioSource.CAMCORDER)
+                            audioConfigured = true
+                        } catch (e3: Exception) {
+                            Log.w(tag, "All audio sources unavailable, falling back to video only: ${e3.message}")
+                        }
+                    }
                 }
             }
 
@@ -303,7 +326,7 @@ class ScreenRecordingManager(private val context: Context) {
                 comp.start()
                 this.compositor = comp
 
-                if (!isDualOnly) {
+                if (!isDualOnly && projection != null) {
                     virtualDisplay = projection.createVirtualDisplay(
                         "ScreenProCaptureDisplay",
                         encWidth,
@@ -331,7 +354,7 @@ class ScreenRecordingManager(private val context: Context) {
                     )
                 }
             } else {
-                virtualDisplay = projection.createVirtualDisplay(
+                virtualDisplay = projection?.createVirtualDisplay(
                     "ScreenProCaptureDisplay",
                     encWidth,
                     encHeight,
@@ -529,50 +552,60 @@ class ScreenRecordingManager(private val context: Context) {
         val density = displayMetrics.densityDpi
 
         val imageReader = ImageReader.newInstance(width, height, PixelFormat.RGBA_8888, 2)
-        val vDisplay = projection.createVirtualDisplay(
-            "ScreenProScreenshotDisplay",
-            width,
-            height,
-            density,
-            DisplayManager.VIRTUAL_DISPLAY_FLAG_AUTO_MIRROR,
-            imageReader.surface,
-            null,
-            null
-        )
+        val vDisplay = try {
+            projection.createVirtualDisplay(
+                "ScreenProScreenshotDisplay",
+                width,
+                height,
+                density,
+                DisplayManager.VIRTUAL_DISPLAY_FLAG_AUTO_MIRROR,
+                imageReader.surface,
+                null,
+                null
+            )
+        } catch (e: Exception) {
+            Log.e(tag, "Failed to create virtual display for screenshot", e)
+            imageReader.close()
+            return
+        }
 
+        var captured = false
         imageReader.setOnImageAvailableListener({ reader ->
-            val image = reader.acquireLatestImage()
-            if (image != null) {
-                try {
-                    val planes = image.planes
-                    val buffer = planes[0].buffer
-                    val pixelStride = planes[0].pixelStride
-                    val rowStride = planes[0].rowStride
-                    val rowPadding = rowStride - pixelStride * width
+            if (captured) return@setOnImageAvailableListener
+            val image = reader.acquireLatestImage() ?: reader.acquireNextImage() ?: return@setOnImageAvailableListener
+            captured = true
+            try {
+                val planes = image.planes
+                val buffer = planes[0].buffer
+                val pixelStride = planes[0].pixelStride
+                val rowStride = planes[0].rowStride
+                val rowPadding = rowStride - pixelStride * width
 
-                    val bitmap = Bitmap.createBitmap(
-                        width + rowPadding / pixelStride,
-                        height,
-                        Bitmap.Config.ARGB_8888
-                    )
-                    bitmap.copyPixelsFromBuffer(buffer)
-                    val croppedBitmap = Bitmap.createBitmap(bitmap, 0, 0, width, height)
-
-                    CoroutineScope(Dispatchers.IO).launch {
-                        val title = "Screenshot_${System.currentTimeMillis()}"
-                        mediaStoreRepository.saveScreenshotToAppLibrary(croppedBitmap, title)
-                        mediaStoreRepository.saveScreenshotToMediaStore(croppedBitmap, title)
-                        withContext(Dispatchers.Main) {
-                            Toast.makeText(context, "Screenshot captured & saved to library!", Toast.LENGTH_SHORT).show()
-                        }
-                    }
-                } catch (e: Exception) {
-                    Log.e(tag, "Screenshot processing error", e)
-                } finally {
-                    image.close()
-                    reader.close()
-                    vDisplay.release()
+                val bitmap = Bitmap.createBitmap(
+                    width + rowPadding / pixelStride,
+                    height,
+                    Bitmap.Config.ARGB_8888
+                )
+                bitmap.copyPixelsFromBuffer(buffer)
+                val croppedBitmap = Bitmap.createBitmap(bitmap, 0, 0, width, height)
+                if (croppedBitmap != bitmap) {
+                    bitmap.recycle()
                 }
+
+                CoroutineScope(Dispatchers.IO).launch {
+                    val title = "Screenshot_${System.currentTimeMillis()}"
+                    mediaStoreRepository.saveScreenshotToAppLibrary(croppedBitmap, title)
+                    mediaStoreRepository.saveScreenshotToMediaStore(croppedBitmap, title)
+                    withContext(Dispatchers.Main) {
+                        Toast.makeText(context, "Screenshot captured & saved to library!", Toast.LENGTH_SHORT).show()
+                    }
+                }
+            } catch (e: Exception) {
+                Log.e(tag, "Screenshot processing error", e)
+            } finally {
+                image.close()
+                reader.close()
+                vDisplay.release()
             }
         }, Handler(Looper.getMainLooper()))
     }

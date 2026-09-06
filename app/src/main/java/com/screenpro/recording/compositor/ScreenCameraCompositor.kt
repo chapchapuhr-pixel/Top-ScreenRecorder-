@@ -28,10 +28,11 @@ import java.util.concurrent.atomic.AtomicBoolean
  * - Picture-in-Picture (PiP)
  */
 class ScreenCameraCompositor(
-    private val outputSurface: Surface,
+    private var outputSurface: Surface? = null,
     private val videoWidth: Int,
     private val videoHeight: Int,
-    private val targetFps: Int = 60
+    private val targetFps: Int = 30,
+    private var previewSurface: Surface? = null
 ) {
     private val tag = "ScreenCameraCompositor"
 
@@ -41,6 +42,7 @@ class ScreenCameraCompositor(
 
     private var eglCore: EglCore? = null
     private var eglSurface: EGLSurface = EGL14.EGL_NO_SURFACE
+    private var eglPreviewSurface: EGLSurface = EGL14.EGL_NO_SURFACE
     private var glProgram: FaceCamGlProgram? = null
 
     private var screenTexId = 0
@@ -144,8 +146,26 @@ class ScreenCameraCompositor(
 
     private fun initGL() {
         eglCore = EglCore().also { core ->
-            eglSurface = core.createWindowSurface(outputSurface)
-            core.makeCurrent(eglSurface)
+            val out = outputSurface
+            if (out != null && out.isValid) {
+                try {
+                    eglSurface = core.createWindowSurface(out)
+                    core.makeCurrent(eglSurface)
+                } catch (e: Exception) {
+                    Log.e(tag, "Failed creating record EGL surface: ${e.message}")
+                }
+            }
+            val prev = previewSurface
+            if (prev != null && prev.isValid) {
+                try {
+                    eglPreviewSurface = core.createWindowSurface(prev)
+                    if (eglSurface == EGL14.EGL_NO_SURFACE) {
+                        core.makeCurrent(eglPreviewSurface)
+                    }
+                } catch (e: Exception) {
+                    Log.e(tag, "Failed creating preview EGL surface: ${e.message}")
+                }
+            }
         }
 
         glProgram = FaceCamGlProgram()
@@ -194,11 +214,9 @@ class ScreenCameraCompositor(
     private fun drawFrame() {
         val core = eglCore ?: return
         val prog = glProgram ?: return
-        if (eglSurface == EGL14.EGL_NO_SURFACE) return
+        if (eglSurface == EGL14.EGL_NO_SURFACE && eglPreviewSurface == EGL14.EGL_NO_SURFACE) return
 
         try {
-            core.makeCurrent(eglSurface)
-
             val isDualOnly = (cameraMode == "dual_only")
 
             // Update Screen Texture if screen capture is active
@@ -225,137 +243,159 @@ class ScreenCameraCompositor(
                 } catch (_: Exception) {}
             }
 
-            GLES20.glViewport(0, 0, videoWidth, videoHeight)
-            GLES20.glClear(GLES20.GL_COLOR_BUFFER_BIT)
-
-            when (cameraMode) {
-                "off" -> {
-                    // Screen only
-                    prog.drawScreen(screenTexId, screenTexMatrix)
-                }
-                "facecam", "rear" -> {
-                    // Screen + Single Camera
-                    prog.drawScreen(screenTexId, screenTexMatrix)
-                    if (camera1Enabled) {
-                        drawCameraOverlay(
-                            prog = prog,
-                            textureId = camera1TexId,
-                            texMatrix = camera1TexMatrix,
-                            shape = camera1Shape,
-                            posX = camera1PositionX,
-                            posY = camera1PositionY,
-                            scale = camera1Scale,
-                            borderWidthDp = camera1BorderWidthDp,
-                            borderColorHex = camera1BorderColorHex,
-                            isMirrored = camera1Mirrored
-                        )
-                    }
-                }
-                "dual" -> {
-                    // Screen + Rear Camera + FaceCam
-                    prog.drawScreen(screenTexId, screenTexMatrix)
-
-                    // Draw Camera 1 (e.g. FaceCam)
-                    if (camera1Enabled) {
-                        drawCameraOverlay(
-                            prog = prog,
-                            textureId = camera1TexId,
-                            texMatrix = camera1TexMatrix,
-                            shape = camera1Shape,
-                            posX = camera1PositionX,
-                            posY = camera1PositionY,
-                            scale = camera1Scale,
-                            borderWidthDp = camera1BorderWidthDp,
-                            borderColorHex = camera1BorderColorHex,
-                            isMirrored = camera1Mirrored
-                        )
-                    }
-
-                    // Draw Camera 2 (e.g. Rear Camera overlay)
-                    if (camera2Enabled) {
-                        drawCameraOverlay(
-                            prog = prog,
-                            textureId = camera2TexId,
-                            texMatrix = camera2TexMatrix,
-                            shape = camera2Shape,
-                            posX = camera2PositionX,
-                            posY = camera2PositionY,
-                            scale = camera2Scale,
-                            borderWidthDp = camera2BorderWidthDp,
-                            borderColorHex = camera2BorderColorHex,
-                            isMirrored = camera2Mirrored
-                        )
-                    }
-                }
-                "dual_only" -> {
-                    // Rear Camera + FaceCam (No screen recording)
-                    when (dualLayout) {
-                        "split_horizontal" -> {
-                            // Top Half: Camera 1 (or Rear), Bottom Half: Camera 2 (or Front)
-                            val topMvp = FloatArray(16).apply {
-                                Matrix.setIdentityM(this, 0)
-                                Matrix.translateM(this, 0, 0f, 0.5f, 0f)
-                                Matrix.scaleM(this, 0, 1.0f, 0.5f, 1.0f)
-                            }
-                            val bottomMvp = FloatArray(16).apply {
-                                Matrix.setIdentityM(this, 0)
-                                Matrix.translateM(this, 0, 0f, -0.5f, 0f)
-                                Matrix.scaleM(this, 0, 1.0f, 0.5f, 1.0f)
-                            }
-                            val dummyBorder = floatArrayOf(0f, 0f, 0f, 0f)
-                            prog.drawFaceCam(camera1TexId, camera1TexMatrix, topMvp, 2, dummyBorder, 0f, 0f, camera1Mirrored)
-                            prog.drawFaceCam(camera2TexId, camera2TexMatrix, bottomMvp, 2, dummyBorder, 0f, 0f, camera2Mirrored)
-                        }
-                        "split_vertical" -> {
-                            // Left Half: Camera 1, Right Half: Camera 2
-                            val leftMvp = FloatArray(16).apply {
-                                Matrix.setIdentityM(this, 0)
-                                Matrix.translateM(this, 0, -0.5f, 0f, 0f)
-                                Matrix.scaleM(this, 0, 0.5f, 1.0f, 1.0f)
-                            }
-                            val rightMvp = FloatArray(16).apply {
-                                Matrix.setIdentityM(this, 0)
-                                Matrix.translateM(this, 0, 0.5f, 0f, 0f)
-                                Matrix.scaleM(this, 0, 0.5f, 1.0f, 1.0f)
-                            }
-                            val dummyBorder = floatArrayOf(0f, 0f, 0f, 0f)
-                            prog.drawFaceCam(camera1TexId, camera1TexMatrix, leftMvp, 2, dummyBorder, 0f, 0f, camera1Mirrored)
-                            prog.drawFaceCam(camera2TexId, camera2TexMatrix, rightMvp, 2, dummyBorder, 0f, 0f, camera2Mirrored)
-                        }
-                        else -> {
-                            // "pip" or "dual_bubbles": Camera 1 is background, Camera 2 is floating PiP overlay
-                            val fullMvp = FloatArray(16).apply { Matrix.setIdentityM(this, 0) }
-                            val dummyBorder = floatArrayOf(0f, 0f, 0f, 0f)
-                            prog.drawFaceCam(camera1TexId, camera1TexMatrix, fullMvp, 2, dummyBorder, 0f, 0f, camera1Mirrored)
-
-                            if (camera2Enabled) {
-                                drawCameraOverlay(
-                                    prog = prog,
-                                    textureId = camera2TexId,
-                                    texMatrix = camera2TexMatrix,
-                                    shape = camera2Shape,
-                                    posX = camera2PositionX,
-                                    posY = camera2PositionY,
-                                    scale = camera2Scale,
-                                    borderWidthDp = camera2BorderWidthDp,
-                                    borderColorHex = camera2BorderColorHex,
-                                    isMirrored = camera2Mirrored
-                                )
-                            }
-                        }
-                    }
-                }
-                else -> {
-                    // Default fallback to screen
-                    prog.drawScreen(screenTexId, screenTexMatrix)
+            // 1. Render to on-screen preview if attached
+            if (eglPreviewSurface != EGL14.EGL_NO_SURFACE) {
+                try {
+                    core.makeCurrent(eglPreviewSurface)
+                    GLES20.glViewport(0, 0, videoWidth, videoHeight)
+                    GLES20.glClear(GLES20.GL_COLOR_BUFFER_BIT)
+                    renderScene(prog)
+                    core.swapBuffers(eglPreviewSurface)
+                } catch (e: Exception) {
+                    Log.w(tag, "Failed rendering preview surface: ${e.message}")
                 }
             }
 
-            // Set presentation time and swap buffers
-            core.setPresentationTime(eglSurface, System.nanoTime())
-            core.swapBuffers(eglSurface)
+            // 2. Render to recorder output surface if attached
+            if (eglSurface != EGL14.EGL_NO_SURFACE) {
+                try {
+                    core.makeCurrent(eglSurface)
+                    GLES20.glViewport(0, 0, videoWidth, videoHeight)
+                    GLES20.glClear(GLES20.GL_COLOR_BUFFER_BIT)
+                    renderScene(prog)
+                    core.setPresentationTime(eglSurface, System.nanoTime())
+                    core.swapBuffers(eglSurface)
+                } catch (e: Exception) {
+                    Log.w(tag, "Failed rendering record surface: ${e.message}")
+                }
+            }
         } catch (e: Exception) {
             Log.e(tag, "Error drawing compositor frame", e)
+        }
+    }
+
+    private fun renderScene(prog: FaceCamGlProgram) {
+        when (cameraMode) {
+            "off" -> {
+                // Screen only
+                prog.drawScreen(screenTexId, screenTexMatrix)
+            }
+            "facecam", "rear" -> {
+                // Screen + Single Camera
+                prog.drawScreen(screenTexId, screenTexMatrix)
+                if (camera1Enabled) {
+                    drawCameraOverlay(
+                        prog = prog,
+                        textureId = camera1TexId,
+                        texMatrix = camera1TexMatrix,
+                        shape = camera1Shape,
+                        posX = camera1PositionX,
+                        posY = camera1PositionY,
+                        scale = camera1Scale,
+                        borderWidthDp = camera1BorderWidthDp,
+                        borderColorHex = camera1BorderColorHex,
+                        isMirrored = camera1Mirrored
+                    )
+                }
+            }
+            "dual" -> {
+                // Screen + Rear Camera + FaceCam
+                prog.drawScreen(screenTexId, screenTexMatrix)
+
+                // Draw Camera 1 (e.g. FaceCam)
+                if (camera1Enabled) {
+                    drawCameraOverlay(
+                        prog = prog,
+                        textureId = camera1TexId,
+                        texMatrix = camera1TexMatrix,
+                        shape = camera1Shape,
+                        posX = camera1PositionX,
+                        posY = camera1PositionY,
+                        scale = camera1Scale,
+                        borderWidthDp = camera1BorderWidthDp,
+                        borderColorHex = camera1BorderColorHex,
+                        isMirrored = camera1Mirrored
+                    )
+                }
+
+                // Draw Camera 2 (e.g. Rear Camera overlay)
+                if (camera2Enabled) {
+                    drawCameraOverlay(
+                        prog = prog,
+                        textureId = camera2TexId,
+                        texMatrix = camera2TexMatrix,
+                        shape = camera2Shape,
+                        posX = camera2PositionX,
+                        posY = camera2PositionY,
+                        scale = camera2Scale,
+                        borderWidthDp = camera2BorderWidthDp,
+                        borderColorHex = camera2BorderColorHex,
+                        isMirrored = camera2Mirrored
+                    )
+                }
+            }
+            "dual_only" -> {
+                // Rear Camera + FaceCam (No screen recording)
+                when (dualLayout) {
+                    "split_horizontal" -> {
+                        // Top Half: Camera 1 (or Rear), Bottom Half: Camera 2 (or Front)
+                        val topMvp = FloatArray(16).apply {
+                            Matrix.setIdentityM(this, 0)
+                            Matrix.translateM(this, 0, 0f, 0.5f, 0f)
+                            Matrix.scaleM(this, 0, 1.0f, 0.5f, 1.0f)
+                        }
+                        val bottomMvp = FloatArray(16).apply {
+                            Matrix.setIdentityM(this, 0)
+                            Matrix.translateM(this, 0, 0f, -0.5f, 0f)
+                            Matrix.scaleM(this, 0, 1.0f, 0.5f, 1.0f)
+                        }
+                        val dummyBorder = floatArrayOf(0f, 0f, 0f, 0f)
+                        prog.drawFaceCam(camera1TexId, camera1TexMatrix, topMvp, 2, dummyBorder, 0f, 0f, camera1Mirrored)
+                        prog.drawFaceCam(camera2TexId, camera2TexMatrix, bottomMvp, 2, dummyBorder, 0f, 0f, camera2Mirrored)
+                    }
+                    "split_vertical" -> {
+                        // Left Half: Camera 1, Right Half: Camera 2
+                        val leftMvp = FloatArray(16).apply {
+                            Matrix.setIdentityM(this, 0)
+                            Matrix.translateM(this, 0, -0.5f, 0f, 0f)
+                            Matrix.scaleM(this, 0, 0.5f, 1.0f, 1.0f)
+                        }
+                        val rightMvp = FloatArray(16).apply {
+                            Matrix.setIdentityM(this, 0)
+                            Matrix.translateM(this, 0, 0.5f, 0f, 0f)
+                            Matrix.scaleM(this, 0, 0.5f, 1.0f, 1.0f)
+                        }
+                        val dummyBorder = floatArrayOf(0f, 0f, 0f, 0f)
+                        prog.drawFaceCam(camera1TexId, camera1TexMatrix, leftMvp, 2, dummyBorder, 0f, 0f, camera1Mirrored)
+                        prog.drawFaceCam(camera2TexId, camera2TexMatrix, rightMvp, 2, dummyBorder, 0f, 0f, camera2Mirrored)
+                    }
+                    else -> {
+                        // "pip" or "dual_bubbles": Camera 1 is background, Camera 2 is floating PiP overlay
+                        val fullMvp = FloatArray(16).apply { Matrix.setIdentityM(this, 0) }
+                        val dummyBorder = floatArrayOf(0f, 0f, 0f, 0f)
+                        prog.drawFaceCam(camera1TexId, camera1TexMatrix, fullMvp, 2, dummyBorder, 0f, 0f, camera1Mirrored)
+
+                        if (camera2Enabled) {
+                            drawCameraOverlay(
+                                prog = prog,
+                                textureId = camera2TexId,
+                                texMatrix = camera2TexMatrix,
+                                shape = camera2Shape,
+                                posX = camera2PositionX,
+                                posY = camera2PositionY,
+                                scale = camera2Scale,
+                                borderWidthDp = camera2BorderWidthDp,
+                                borderColorHex = camera2BorderColorHex,
+                                isMirrored = camera2Mirrored
+                            )
+                        }
+                    }
+                }
+            }
+            else -> {
+                // Default fallback to screen
+                prog.drawScreen(screenTexId, screenTexMatrix)
+            }
         }
     }
 
@@ -495,6 +535,42 @@ class ScreenCameraCompositor(
         camera2Mirrored = isMirrored
     }
 
+    fun setRecordSurface(surface: Surface?) {
+        renderHandler?.post {
+            val core = eglCore ?: return@post
+            if (eglSurface != EGL14.EGL_NO_SURFACE) {
+                core.releaseSurface(eglSurface)
+                eglSurface = EGL14.EGL_NO_SURFACE
+            }
+            outputSurface = surface
+            if (surface != null && surface.isValid) {
+                try {
+                    eglSurface = core.createWindowSurface(surface)
+                } catch (e: Exception) {
+                    Log.e(tag, "Failed attaching record surface: ${e.message}")
+                }
+            }
+        }
+    }
+
+    fun setPreviewSurface(surface: Surface?) {
+        renderHandler?.post {
+            val core = eglCore ?: return@post
+            if (eglPreviewSurface != EGL14.EGL_NO_SURFACE) {
+                core.releaseSurface(eglPreviewSurface)
+                eglPreviewSurface = EGL14.EGL_NO_SURFACE
+            }
+            previewSurface = surface
+            if (surface != null && surface.isValid) {
+                try {
+                    eglPreviewSurface = core.createWindowSurface(surface)
+                } catch (e: Exception) {
+                    Log.e(tag, "Failed attaching preview surface: ${e.message}")
+                }
+            }
+        }
+    }
+
     fun stop() {
         if (!isRunning.getAndSet(false)) return
 
@@ -515,6 +591,10 @@ class ScreenCameraCompositor(
                     if (eglSurface != EGL14.EGL_NO_SURFACE) {
                         core.releaseSurface(eglSurface)
                         eglSurface = EGL14.EGL_NO_SURFACE
+                    }
+                    if (eglPreviewSurface != EGL14.EGL_NO_SURFACE) {
+                        core.releaseSurface(eglPreviewSurface)
+                        eglPreviewSurface = EGL14.EGL_NO_SURFACE
                     }
                     core.release()
                 }

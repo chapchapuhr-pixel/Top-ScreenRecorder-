@@ -229,30 +229,49 @@ class CaptureLauncherActivity : ComponentActivity() {
             return
         }
 
+        val handler = Handler(Looper.getMainLooper())
+
+        // Mandatory on Android 14+ (API 34+) before creating VirtualDisplay
+        try {
+            projection.registerCallback(object : MediaProjection.Callback() {
+                override fun onStop() {}
+            }, handler)
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
+
         val metrics = resources.displayMetrics
         val width = metrics.widthPixels
         val height = metrics.heightPixels
         val dpi = metrics.densityDpi
 
         val imageReader = ImageReader.newInstance(width, height, PixelFormat.RGBA_8888, 2)
-        val virtualDisplay = projection.createVirtualDisplay(
-            "ScreenPro_Single_Shot",
-            width,
-            height,
-            dpi,
-            DisplayManager.VIRTUAL_DISPLAY_FLAG_AUTO_MIRROR,
-            imageReader.surface,
-            null,
-            null
-        )
+        val virtualDisplay = try {
+            projection.createVirtualDisplay(
+                "ScreenPro_Single_Shot",
+                width,
+                height,
+                dpi,
+                DisplayManager.VIRTUAL_DISPLAY_FLAG_AUTO_MIRROR,
+                imageReader.surface,
+                null,
+                null
+            )
+        } catch (e: Exception) {
+            e.printStackTrace()
+            projection.stop()
+            imageReader.close()
+            Toast.makeText(this, "Screenshot display error: ${e.message}", Toast.LENGTH_SHORT).show()
+            finishWithNoAnimation()
+            return
+        }
 
-        val handler = Handler(Looper.getMainLooper())
         var captured = false
 
         imageReader.setOnImageAvailableListener({ reader ->
             if (captured) return@setOnImageAvailableListener
+            val image = reader.acquireLatestImage() ?: reader.acquireNextImage() ?: return@setOnImageAvailableListener
             captured = true
-            val image = reader.acquireLatestImage() ?: return@setOnImageAvailableListener
             try {
                 val planes = image.planes
                 val buffer = planes[0].buffer
@@ -267,11 +286,19 @@ class CaptureLauncherActivity : ComponentActivity() {
                 )
                 bitmap.copyPixelsFromBuffer(buffer)
                 val cropped = Bitmap.createBitmap(bitmap, 0, 0, width, height)
+                if (cropped != bitmap) {
+                    bitmap.recycle()
+                }
 
                 CoroutineScope(Dispatchers.IO).launch {
                     val mediaStoreRepository = MediaStoreRepository(applicationContext)
                     val title = "Screenshot_${System.currentTimeMillis()}"
                     val mediaItem = mediaStoreRepository.saveScreenshotToAppLibrary(cropped, title)
+                    try {
+                        mediaStoreRepository.saveScreenshotToMediaStore(cropped, title)
+                    } catch (e: Exception) {
+                        e.printStackTrace()
+                    }
                     handler.post {
                         showScreenshotResult(cropped, title, mediaItem)
                     }
@@ -294,7 +321,7 @@ class CaptureLauncherActivity : ComponentActivity() {
                 imageReader.close()
                 finishWithNoAnimation()
             }
-        }, 1500)
+        }, 2500)
     }
 
     private fun showScreenshotResult(

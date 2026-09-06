@@ -331,4 +331,9 @@ class DualCameraCaptureManager(private val context: Context) {
         stopBackgroundThread()
         Log.d(tag, "DualCameraCaptureManager fully stopped and released")
     }
+
+    fun switchCameraLens(targetSurface: Surface, useFrontCamera: Boolean) {
+        stopCapture()
+        startSingleCapture(targetSurface, useFrontCamera)
+    }
 }

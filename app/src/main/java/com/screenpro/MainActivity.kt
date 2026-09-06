@@ -453,6 +453,9 @@ class MainActivity : ComponentActivity() {
                                     onToggleFloatingBallClick = {
                                         toggleFloatingBallWithPermission(!settings.floatingBallEnabled)
                                     },
+                                    onNavigateDualCamera = {
+                                        navigateTo("dual_camera")
+                                    },
                                     onNavigateLibrary = {
                                         navigateTo("library")
                                     },
@@ -573,6 +576,22 @@ class MainActivity : ComponentActivity() {
                                 } ?: run {
                                     navigateHome()
                                 }
+                            }
+
+                            "dual_camera" -> {
+                                com.screenpro.ui.camera.DualCameraScreen(
+                                    onNavigateBack = {
+                                        navigateBack()
+                                    },
+                                    onOpenPlayer = { playerItem ->
+                                        activePlayerItem = playerItem
+                                        navigateTo("player")
+                                    },
+                                    onOpenEditor = { editorItem ->
+                                        activeEditorItem = editorItem
+                                        navigateTo("editor")
+                                    }
+                                )
                             }
                         }
 
