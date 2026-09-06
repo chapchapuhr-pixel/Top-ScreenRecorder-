@@ -14,24 +14,46 @@ import android.os.Build
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
-import android.util.DisplayMetrics
 import android.view.WindowManager
 import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.Image
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.*
+import androidx.compose.material3.*
+import androidx.compose.runtime.*
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import com.screenpro.ads.RewardAdManager
 import com.screenpro.data.SettingsManager
 import com.screenpro.recording.VideoResolutionHelper
 import com.screenpro.storage.MediaStoreRepository
 import com.screenpro.ui.components.CountdownOverlay
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 /**
  * Headless translucent Activity that handles MediaProjection permission prompts
  * for the Floating Ball directly over whatever app/game the user is currently using,
- * without ever opening or foregrounding the main ScreenPro recorder application.
+ * and presents a professional instant screenshot preview with Save to Phone reward ad.
  */
 class CaptureLauncherActivity : ComponentActivity() {
 
@@ -126,7 +148,6 @@ class CaptureLauncherActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         overridePendingTransition(0, 0)
 
-        // Make window completely transparent and non-intrusive
         window.setBackgroundDrawableResource(android.R.color.transparent)
         window.addFlags(WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL)
 
@@ -155,9 +176,7 @@ class CaptureLauncherActivity : ComponentActivity() {
         val settings = settingsManager.settings.value
 
         val (width, height) = VideoResolutionHelper.getVideoDimensions(applicationContext, settings)
-
         val bitrate = VideoResolutionHelper.calculateBitrate(settings)
-
         val enableMic = settings.audioSource == "mic" || settings.audioSource == "both"
 
         val serviceIntent = Intent(this, ScreenRecordService::class.java).apply {
@@ -252,18 +271,9 @@ class CaptureLauncherActivity : ComponentActivity() {
                 CoroutineScope(Dispatchers.IO).launch {
                     val mediaStoreRepository = MediaStoreRepository(applicationContext)
                     val title = "Screenshot_${System.currentTimeMillis()}"
-                    mediaStoreRepository.saveScreenshotToAppLibrary(cropped, title)
-                    val uri = mediaStoreRepository.saveScreenshotToMediaStore(
-                        cropped,
-                        title
-                    )
+                    val mediaItem = mediaStoreRepository.saveScreenshotToAppLibrary(cropped, title)
                     handler.post {
-                        Toast.makeText(
-                            applicationContext,
-                            "Screenshot captured & saved to library!",
-                            Toast.LENGTH_SHORT
-                        ).show()
-                        finishWithNoAnimation()
+                        showScreenshotResult(cropped, title, mediaItem)
                     }
                 }
             } catch (e: Exception) {
@@ -277,7 +287,6 @@ class CaptureLauncherActivity : ComponentActivity() {
             }
         }, handler)
 
-        // Safety timeout in case no frame is delivered
         handler.postDelayed({
             if (!captured) {
                 virtualDisplay?.release()
@@ -286,6 +295,251 @@ class CaptureLauncherActivity : ComponentActivity() {
                 finishWithNoAnimation()
             }
         }, 1500)
+    }
+
+    private fun showScreenshotResult(
+        bitmap: Bitmap,
+        title: String,
+        mediaItem: com.screenpro.data.model.MediaItem
+    ) {
+        setContent {
+            var isSavedToGallery by remember { mutableStateOf(false) }
+            var isSaving by remember { mutableStateOf(false) }
+
+            // Auto dismiss after 7 seconds if untouched
+            LaunchedEffect(Unit) {
+                delay(7000)
+                finishWithNoAnimation()
+            }
+
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(Color.Black.copy(alpha = 0.45f))
+                    .clickable { finishWithNoAnimation() },
+                contentAlignment = Alignment.BottomCenter
+            ) {
+                Surface(
+                    shape = RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp),
+                    color = Color(0xFF161616),
+                    border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFF2C2C2C)),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clickable(enabled = false) {}
+                ) {
+                    Column(
+                        modifier = Modifier
+                            .padding(20.dp)
+                            .fillMaxWidth()
+                    ) {
+                        // Title header
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Box(
+                                    modifier = Modifier
+                                        .size(34.dp)
+                                        .background(Color(0xFF1E88E5).copy(alpha = 0.2f), CircleShape),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.CheckCircle,
+                                        contentDescription = null,
+                                        tint = Color(0xFF2979FF),
+                                        modifier = Modifier.size(20.dp)
+                                    )
+                                }
+                                Spacer(modifier = Modifier.width(10.dp))
+                                Column {
+                                    Text(
+                                        text = "Screenshot Captured!",
+                                        color = Color.White,
+                                        fontSize = 16.sp,
+                                        fontWeight = FontWeight.Bold
+                                    )
+                                    Text(
+                                        text = "Saved in Free Screen Recorder Library",
+                                        color = Color(0xFF9E9E9E),
+                                        fontSize = 12.sp
+                                    )
+                                }
+                            }
+
+                            IconButton(
+                                onClick = { finishWithNoAnimation() },
+                                modifier = Modifier.size(28.dp)
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.Close,
+                                    contentDescription = "Dismiss",
+                                    tint = Color.LightGray
+                                )
+                            }
+                        }
+
+                        Spacer(modifier = Modifier.height(14.dp))
+
+                        // Preview Thumbnail and action controls
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(14.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            // Thumbnail Preview
+                            Box(
+                                modifier = Modifier
+                                    .width(90.dp)
+                                    .height(125.dp)
+                                    .clip(RoundedCornerShape(10.dp))
+                                    .background(Color.Black)
+                                    .border(1.dp, Color(0xFF333333), RoundedCornerShape(10.dp))
+                            ) {
+                                Image(
+                                    bitmap = bitmap.asImageBitmap(),
+                                    contentDescription = "Screenshot Preview",
+                                    contentScale = ContentScale.Crop,
+                                    modifier = Modifier.fillMaxSize()
+                                )
+                            }
+
+                            // Actions
+                            Column(
+                                modifier = Modifier.weight(1f),
+                                verticalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                // Save to Phone (Rewarded Ad)
+                                if (isSavedToGallery) {
+                                    Row(
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .background(Color(0xFF1B3B22), RoundedCornerShape(10.dp))
+                                            .padding(horizontal = 12.dp, vertical = 10.dp)
+                                    ) {
+                                        Icon(
+                                            Icons.Default.CheckCircle,
+                                            contentDescription = null,
+                                            tint = Color(0xFF4CAF50),
+                                            modifier = Modifier.size(16.dp)
+                                        )
+                                        Spacer(modifier = Modifier.width(8.dp))
+                                        Text(
+                                            "Saved in Phone Gallery",
+                                            color = Color(0xFF81C784),
+                                            fontSize = 12.sp,
+                                            fontWeight = FontWeight.Bold
+                                        )
+                                    }
+                                } else {
+                                    Button(
+                                        onClick = {
+                                            isSaving = true
+                                            RewardAdManager.showRewardAd(
+                                                activity = this@CaptureLauncherActivity,
+                                                onRewardGranted = {
+                                                    CoroutineScope(Dispatchers.IO).launch {
+                                                        val repo = MediaStoreRepository(applicationContext)
+                                                        repo.saveScreenshotToMediaStore(bitmap, title)
+                                                        repo.saveScreenshotToPhoneGallery(mediaItem)
+                                                        withContext(Dispatchers.Main) {
+                                                            isSavedToGallery = true
+                                                            isSaving = false
+                                                            Toast.makeText(
+                                                                applicationContext,
+                                                                "Screenshot saved to Phone Gallery!",
+                                                                Toast.LENGTH_SHORT
+                                                            ).show()
+                                                        }
+                                                    }
+                                                },
+                                                onComplete = {
+                                                    isSaving = false
+                                                }
+                                            )
+                                        },
+                                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF1E88E5)),
+                                        shape = RoundedCornerShape(10.dp),
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .height(40.dp)
+                                    ) {
+                                        Icon(
+                                            Icons.Default.Download,
+                                            contentDescription = null,
+                                            modifier = Modifier.size(16.dp)
+                                        )
+                                        Spacer(modifier = Modifier.width(6.dp))
+                                        Text(
+                                            if (isSaving) "Saving..." else "Save to Phone",
+                                            fontWeight = FontWeight.Bold,
+                                            fontSize = 12.sp
+                                        )
+                                    }
+                                }
+
+                                // Open in Library Button
+                                OutlinedButton(
+                                    onClick = {
+                                        val intent = Intent(applicationContext, com.screenpro.MainActivity::class.java).apply {
+                                            putExtra("TARGET_SCREEN", "library")
+                                            flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
+                                        }
+                                        startActivity(intent)
+                                        finishWithNoAnimation()
+                                    },
+                                    shape = RoundedCornerShape(10.dp),
+                                    colors = ButtonDefaults.outlinedButtonColors(contentColor = Color.White),
+                                    border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFF383838)),
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .height(38.dp)
+                                ) {
+                                    Icon(
+                                        Icons.Default.VideoLibrary,
+                                        contentDescription = null,
+                                        modifier = Modifier.size(15.dp)
+                                    )
+                                    Spacer(modifier = Modifier.width(6.dp))
+                                    Text("Open in Library", fontSize = 12.sp)
+                                }
+
+                                // Share Button
+                                OutlinedButton(
+                                    onClick = {
+                                        val sendIntent = Intent(Intent.ACTION_SEND).apply {
+                                            type = "image/png"
+                                            putExtra(Intent.EXTRA_STREAM, mediaItem.uri)
+                                            flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_GRANT_READ_URI_PERMISSION
+                                        }
+                                        startActivity(Intent.createChooser(sendIntent, "Share Screenshot").apply {
+                                            flags = Intent.FLAG_ACTIVITY_NEW_TASK
+                                        })
+                                        finishWithNoAnimation()
+                                    },
+                                    shape = RoundedCornerShape(10.dp),
+                                    colors = ButtonDefaults.outlinedButtonColors(contentColor = Color.White),
+                                    border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFF383838)),
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .height(38.dp)
+                                ) {
+                                    Icon(
+                                        Icons.Default.Share,
+                                        contentDescription = null,
+                                        modifier = Modifier.size(15.dp)
+                                    )
+                                    Spacer(modifier = Modifier.width(6.dp))
+                                    Text("Share", fontSize = 12.sp)
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
     }
 
     private fun finishWithNoAnimation() {

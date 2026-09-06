@@ -38,6 +38,8 @@ import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
 import androidx.lifecycle.lifecycleScope
+import com.screenpro.ads.AppOpenManager
+import com.screenpro.ads.RewardAdManager
 import com.screenpro.data.SettingsManager
 import com.screenpro.data.model.MediaItem
 import com.screenpro.data.model.MediaType
@@ -262,6 +264,9 @@ class MainActivity : ComponentActivity() {
             if (!FloatingBallService.isRunning) {
                 FloatingBallService.start(this)
             }
+        }
+        if (!isRecording.value) {
+            AppOpenManager.showIfAvailable(this)
         }
     }
 
@@ -842,20 +847,26 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun saveToPhoneGallery(item: MediaItem) {
-        lifecycleScope.launch(Dispatchers.IO) {
-            val savedUri = if (item.type == MediaType.VIDEO) {
-                mediaStoreRepository.saveVideoToPhoneGallery(item)
-            } else {
-                mediaStoreRepository.saveScreenshotToPhoneGallery(item)
-            }
-            withContext(Dispatchers.Main) {
-                if (savedUri != null) {
-                    refreshMediaItems()
-                    Toast.makeText(this@MainActivity, "Video saved in phone gallery!", Toast.LENGTH_SHORT).show()
-                } else {
-                    Toast.makeText(this@MainActivity, "Already saved to phone gallery", Toast.LENGTH_SHORT).show()
+        RewardAdManager.showRewardAd(
+            activity = this,
+            onRewardGranted = {
+                lifecycleScope.launch(Dispatchers.IO) {
+                    val savedUri = if (item.type == MediaType.VIDEO) {
+                        mediaStoreRepository.saveVideoToPhoneGallery(item)
+                    } else {
+                        mediaStoreRepository.saveScreenshotToPhoneGallery(item)
+                    }
+                    withContext(Dispatchers.Main) {
+                        if (savedUri != null) {
+                            refreshMediaItems()
+                            val label = if (item.type == MediaType.VIDEO) "Video" else "Screenshot"
+                            Toast.makeText(this@MainActivity, "$label saved in phone gallery!", Toast.LENGTH_SHORT).show()
+                        } else {
+                            Toast.makeText(this@MainActivity, "Already saved to phone gallery", Toast.LENGTH_SHORT).show()
+                        }
+                    }
                 }
             }
-        }
+        )
     }
 }

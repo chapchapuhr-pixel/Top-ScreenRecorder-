@@ -531,7 +531,7 @@ class FloatingBallService : Service() {
         if (isCollapsed) {
             return (110 * density).roundToInt() to (40 * density).roundToInt()
         }
-        return when (settings.cameraSize) {
+        val (baseW, baseH) = when (settings.cameraSize) {
             "small" -> when (settings.cameraShape) {
                 "rectangle" -> (130 * density).roundToInt() to (98 * density).roundToInt()
                 else -> (110 * density).roundToInt() to (110 * density).roundToInt()
@@ -545,6 +545,10 @@ class FloatingBallService : Service() {
                 else -> (140 * density).roundToInt() to (140 * density).roundToInt()
             }
         }
+        // Headroom for the '×' cancel button outside on top of the round facecam
+        val extraTop = (38 * density).roundToInt()
+        val extraSide = (12 * density).roundToInt()
+        return (baseW + extraSide) to (baseH + extraTop)
     }
 
     private fun syncFaceCamOverlay(settings: com.screenpro.data.model.AppSettings) {
@@ -660,6 +664,7 @@ class FloatingBallService : Service() {
                     onClose = {
                         FaceCamController.setFaceCamEnabled(false)
                         settingsManager.updateSettings(currentSettings.copy(cameraEnabled = false))
+                        android.widget.Toast.makeText(applicationContext, "FaceCam closed", android.widget.Toast.LENGTH_SHORT).show()
                     }
                 )
             }

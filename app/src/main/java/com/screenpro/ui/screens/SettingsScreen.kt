@@ -27,6 +27,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.screenpro.ads.SettingsSmallAdCard
 import com.screenpro.data.SettingsManager
 import com.screenpro.data.model.AppSettings
 import com.screenpro.recording.TouchVisualizerHelper
@@ -1061,6 +1062,9 @@ fun SettingsScreen(
                         }
                     }
                 }
+
+                // Small AdMob Ad banner at the end of every settings page
+                SettingsSmallAdCard()
             }
         }
     }

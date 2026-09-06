@@ -6,6 +6,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.grid.GridCells
+import androidx.compose.foundation.lazy.grid.GridItemSpan
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.shape.CircleShape
@@ -32,11 +33,17 @@ import android.graphics.Bitmap
 import androidx.compose.foundation.Image
 import androidx.compose.ui.graphics.asImageBitmap
 import com.screenpro.util.VideoThumbnailHelper
+import com.screenpro.ads.LibraryNativeAdCard
 import com.screenpro.data.model.MediaItem
 import com.screenpro.data.model.MediaType
 import java.io.File
 import java.text.SimpleDateFormat
 import java.util.*
+
+sealed interface LibraryGridEntry {
+    data class Media(val item: MediaItem) : LibraryGridEntry
+    data class Ad(val adIndex: Int) : LibraryGridEntry
+}
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -321,6 +328,21 @@ fun LibraryScreen(
                     }
                 }
             } else {
+                val gridEntries = remember(filteredItems) {
+                    val list = mutableListOf<LibraryGridEntry>()
+                    var adIdx = 0
+                    filteredItems.forEachIndexed { index, item ->
+                        list.add(LibraryGridEntry.Media(item))
+                        if ((index + 1) % 4 == 0) {
+                            list.add(LibraryGridEntry.Ad(adIdx++))
+                        }
+                    }
+                    if (filteredItems.isNotEmpty() && filteredItems.size < 4) {
+                        list.add(LibraryGridEntry.Ad(adIdx))
+                    }
+                    list
+                }
+
                 LazyVerticalGrid(
                     columns = GridCells.Adaptive(minSize = 160.dp),
                     contentPadding = PaddingValues(16.dp),
@@ -328,8 +350,28 @@ fun LibraryScreen(
                     verticalArrangement = Arrangement.spacedBy(12.dp),
                     modifier = Modifier.fillMaxSize()
                 ) {
-                    items(filteredItems, key = { it.id }) { item ->
-                        val isSelected = item.id in selectedIds
+                    items(
+                        items = gridEntries,
+                        key = { entry ->
+                            when (entry) {
+                                is LibraryGridEntry.Media -> "media_${entry.item.id}"
+                                is LibraryGridEntry.Ad -> "ad_${entry.adIndex}"
+                            }
+                        },
+                        span = { entry ->
+                            when (entry) {
+                                is LibraryGridEntry.Ad -> GridItemSpan(maxLineSpan)
+                                is LibraryGridEntry.Media -> GridItemSpan(1)
+                            }
+                        }
+                    ) { entry ->
+                        when (entry) {
+                            is LibraryGridEntry.Ad -> {
+                                LibraryNativeAdCard()
+                            }
+                            is LibraryGridEntry.Media -> {
+                                val item = entry.item
+                                val isSelected = item.id in selectedIds
 
                         Surface(
                             shape = RoundedCornerShape(16.dp),
@@ -595,6 +637,8 @@ fun LibraryScreen(
             }
         }
     }
+}
+}
 
     // Details Modal
     itemForDetails?.let { detailItem ->

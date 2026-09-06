@@ -10,6 +10,11 @@ import coil.memory.MemoryCache
 
 class ScreenRecorderApp : Application(), ImageLoaderFactory {
 
+    override fun onCreate() {
+        super.onCreate()
+        com.screenpro.ads.AdManager.initialize(this)
+    }
+
     override fun newImageLoader(): ImageLoader {
         return ImageLoader.Builder(this)
             .components {

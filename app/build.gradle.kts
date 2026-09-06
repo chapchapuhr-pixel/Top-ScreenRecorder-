@@ -65,6 +65,7 @@ dependencies {
     implementation(libs.androidx.lifecycle.runtime.compose)
     implementation(libs.coil.compose)
     implementation(libs.coil.video)
+    implementation(libs.play.services.ads)
 
     // CameraX for Face-cam PiP
     implementation(libs.androidx.camera.core)

@@ -7,6 +7,8 @@ import androidx.camera.view.PreviewView
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
+import androidx.compose.animation.scaleIn
+import androidx.compose.animation.scaleOut
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -35,9 +37,13 @@ import androidx.lifecycle.compose.LocalLifecycleOwner
 
 /**
  * FloatingFaceCamOverlay
- * Renders the live system-wide floating FaceCam window managed by FloatingBallService.
- * Supports dragging, shape/size/mirror switching, lens flipping, and dynamic
- * hide/show collapsing during recordings and explanations.
+ * Renders the live system-wide floating FaceCam overlay.
+ * Features:
+ * - Tap facecam to reveal the prominent '×' cancel button outside on top
+ * - Shift to hind (back) camera or front camera
+ * - Switch shape dynamically (Circle, Rounded Square, Rectangle)
+ * - Move anywhere with smooth drag
+ * - Clicking '×' cancels / closes the overlay immediately
  */
 @Composable
 fun FloatingFaceCamOverlay(
@@ -111,6 +117,7 @@ fun FloatingFaceCamOverlay(
         else -> CircleShape
     }
 
+    // Root container with drag gesture handling
     Box(
         modifier = Modifier
             .fillMaxSize()
@@ -120,196 +127,204 @@ fun FloatingFaceCamOverlay(
                     onDrag(dragAmount.x, dragAmount.y)
                 }
             }
-            .clip(bubbleShape)
-            .background(Color.Black)
-            .border(borderWidthDp.dp, parsedBorderColor, bubbleShape)
-            .clickable { showControls = !showControls }
     ) {
-        // Continuous Live CameraX Preview
-        AndroidView(
-            factory = { ctx ->
-                val previewView = PreviewView(ctx).apply {
-                    implementationMode = PreviewView.ImplementationMode.COMPATIBLE
-                    scaleType = PreviewView.ScaleType.FILL_CENTER
-                    scaleX = if (isMirrored && isFrontCamera) -1f else 1f
-                }
-
-                val cameraProviderFuture = ProcessCameraProvider.getInstance(ctx)
-                cameraProviderFuture.addListener({
-                    try {
-                        val cameraProvider = cameraProviderFuture.get()
-                        val preview = Preview.Builder().build().also {
-                            it.surfaceProvider = previewView.surfaceProvider
-                        }
-
-                        val cameraSelector = if (isFrontCamera) {
-                            CameraSelector.DEFAULT_FRONT_CAMERA
-                        } else {
-                            CameraSelector.DEFAULT_BACK_CAMERA
-                        }
-
-                        cameraProvider.unbindAll()
-                        cameraProvider.bindToLifecycle(
-                            lifecycleOwner,
-                            cameraSelector,
-                            preview
-                        )
-                    } catch (e: Exception) {
-                        e.printStackTrace()
+        // FaceCam Bubble (Anchored at the bottom of the window canvas)
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .fillMaxHeight()
+                .padding(top = 34.dp, start = 4.dp, end = 4.dp, bottom = 2.dp)
+                .align(Alignment.BottomCenter)
+                .clip(bubbleShape)
+                .background(Color.Black)
+                .border(borderWidthDp.dp, parsedBorderColor, bubbleShape)
+                .clickable { showControls = !showControls }
+        ) {
+            // Continuous Live CameraX Preview (supporting Front and Hind / Back camera)
+            AndroidView(
+                factory = { ctx ->
+                    val previewView = PreviewView(ctx).apply {
+                        implementationMode = PreviewView.ImplementationMode.COMPATIBLE
+                        scaleType = PreviewView.ScaleType.FILL_CENTER
+                        scaleX = if (isMirrored && isFrontCamera) -1f else 1f
                     }
-                }, ContextCompat.getMainExecutor(ctx))
 
-                previewView
-            },
-            update = { view ->
-                view.scaleX = if (isMirrored && isFrontCamera) -1f else 1f
-            },
-            modifier = Modifier.fillMaxSize()
-        )
+                    val cameraProviderFuture = ProcessCameraProvider.getInstance(ctx)
+                    cameraProviderFuture.addListener({
+                        try {
+                            val cameraProvider = cameraProviderFuture.get()
+                            val preview = Preview.Builder().build().also {
+                                it.surfaceProvider = previewView.surfaceProvider
+                            }
 
-        // Quick Controls Overlay
+                            // Shift between Front and Hind (Back) Camera
+                            val cameraSelector = if (isFrontCamera) {
+                                CameraSelector.DEFAULT_FRONT_CAMERA
+                            } else {
+                                CameraSelector.DEFAULT_BACK_CAMERA
+                            }
+
+                            cameraProvider.unbindAll()
+                            cameraProvider.bindToLifecycle(
+                                lifecycleOwner,
+                                cameraSelector,
+                                preview
+                            )
+                        } catch (e: Exception) {
+                            e.printStackTrace()
+                        }
+                    }, ContextCompat.getMainExecutor(ctx))
+
+                    previewView
+                },
+                update = { view ->
+                    view.scaleX = if (isMirrored && isFrontCamera) -1f else 1f
+                },
+                modifier = Modifier.fillMaxSize()
+            )
+
+            // Quick In-Bubble Action HUD (shown when user touches the round facecam)
+            AnimatedVisibility(
+                visible = showControls,
+                enter = fadeIn(),
+                exit = fadeOut()
+            ) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .background(Color.Black.copy(alpha = 0.72f))
+                        .padding(4.dp),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Column(
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.spacedBy(4.dp)
+                    ) {
+                        // Top Row: Shift to Hind/Front camera & Change Shape
+                        Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                            // Shift to Hind / Rear Camera Lens
+                            IconButton(
+                                onClick = { onSwitchLens(!isFrontCamera) },
+                                modifier = Modifier
+                                    .size(32.dp)
+                                    .background(
+                                        if (!isFrontCamera) parsedBorderColor else Color(0xFF2E2E2E),
+                                        CircleShape
+                                    )
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.Cameraswitch,
+                                    contentDescription = if (isFrontCamera) "Shift to Hind Camera" else "Shift to Front Camera",
+                                    tint = Color.White,
+                                    modifier = Modifier.size(17.dp)
+                                )
+                            }
+
+                            // Change Shape Button (Circle -> Rounded-Square -> Rectangle)
+                            IconButton(
+                                onClick = {
+                                    val nextShape = when (shapeType) {
+                                        "circle" -> "rounded-square"
+                                        "rounded-square" -> "rectangle"
+                                        else -> "circle"
+                                    }
+                                    onShapeChanged(nextShape)
+                                },
+                                modifier = Modifier
+                                    .size(32.dp)
+                                    .background(Color(0xFF2E2E2E), CircleShape)
+                            ) {
+                                Icon(
+                                    imageVector = when (shapeType) {
+                                        "rounded-square" -> Icons.Default.Square
+                                        "rectangle" -> Icons.Default.AspectRatio
+                                        else -> Icons.Default.Circle
+                                    },
+                                    contentDescription = "Change Shape",
+                                    tint = Color.White,
+                                    modifier = Modifier.size(17.dp)
+                                )
+                            }
+                        }
+
+                        // Bottom Row: Size & Mirroring
+                        Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                            // Size Switcher
+                            IconButton(
+                                onClick = {
+                                    val (nextSize, nextScale) = when (sizeType) {
+                                        "small" -> "medium" to 0.26f
+                                        "medium" -> "large" to 0.35f
+                                        else -> "small" to 0.20f
+                                    }
+                                    onSizeChanged(nextSize, nextScale)
+                                },
+                                modifier = Modifier
+                                    .size(30.dp)
+                                    .background(Color(0xFF2E2E2E), CircleShape)
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.PhotoSizeSelectLarge,
+                                    contentDescription = "Cycle Size",
+                                    tint = Color.White,
+                                    modifier = Modifier.size(15.dp)
+                                )
+                            }
+
+                            // Mirror toggle
+                            IconButton(
+                                onClick = { onMirrorToggled(!isMirrored) },
+                                modifier = Modifier
+                                    .size(30.dp)
+                                    .background(if (isMirrored) parsedBorderColor else Color(0xFF2E2E2E), CircleShape)
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.Flip,
+                                    contentDescription = "Mirror Preview",
+                                    tint = Color.White,
+                                    modifier = Modifier.size(15.dp)
+                                )
+                            }
+                        }
+
+                        // Lens label
+                        Text(
+                            text = if (isFrontCamera) "Front Cam" else "Hind Cam",
+                            color = Color.White,
+                            fontSize = 10.sp,
+                            fontWeight = FontWeight.Bold
+                        )
+                    }
+                }
+            }
+        }
+
+        // Prominent '×' Cancel Button outside on top of the round facecam
         AnimatedVisibility(
             visible = showControls,
-            enter = fadeIn(),
-            exit = fadeOut()
+            enter = fadeIn() + scaleIn(),
+            exit = fadeOut() + scaleOut(),
+            modifier = Modifier
+                .align(Alignment.TopEnd)
+                .padding(end = 6.dp, top = 2.dp)
         ) {
             Box(
                 modifier = Modifier
-                    .fillMaxSize()
-                    .background(Color.Black.copy(alpha = 0.78f))
-                    .padding(4.dp)
+                    .size(32.dp)
+                    .clip(CircleShape)
+                    .background(Color(0xFFFF2424))
+                    .border(2.dp, Color.White, CircleShape)
+                    .clickable {
+                        onClose()
+                    },
+                contentAlignment = Alignment.Center
             ) {
-                // Top control bar: Hide (collapse) and Close (exit)
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .align(Alignment.TopCenter)
-                        .padding(horizontal = 4.dp, vertical = 2.dp),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    // Hide button (allows user to explain without camera, then come back)
-                    IconButton(
-                        onClick = {
-                            showControls = false
-                            onToggleCollapse(true)
-                        },
-                        modifier = Modifier
-                            .size(26.dp)
-                            .background(Color(0xFF2E2E2E), CircleShape)
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.VisibilityOff,
-                            contentDescription = "Hide FaceCam",
-                            tint = Color.White,
-                            modifier = Modifier.size(15.dp)
-                        )
-                    }
-
-                    // Close button (disables facecam completely)
-                    IconButton(
-                        onClick = onClose,
-                        modifier = Modifier
-                            .size(26.dp)
-                            .background(Color.Red.copy(alpha = 0.85f), CircleShape)
-                    ) {
-                        Icon(
-                            Icons.Default.Close,
-                            contentDescription = "Close FaceCam",
-                            tint = Color.White,
-                            modifier = Modifier.size(15.dp)
-                        )
-                    }
-                }
-
-                // Quick toggles column / grid
-                Column(
-                    modifier = Modifier.align(Alignment.Center),
-                    horizontalAlignment = Alignment.CenterHorizontally,
-                    verticalArrangement = Arrangement.spacedBy(4.dp)
-                ) {
-                    Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                        // Switch Front/Back Camera Lens
-                        IconButton(
-                            onClick = { onSwitchLens(!isFrontCamera) },
-                            modifier = Modifier
-                                .size(28.dp)
-                                .background(Color(0xFF2E2E2E), CircleShape)
-                        ) {
-                            Icon(
-                                Icons.Default.Cameraswitch,
-                                contentDescription = "Switch Camera Lens",
-                                tint = Color.White,
-                                modifier = Modifier.size(16.dp)
-                            )
-                        }
-
-                        // Shape switcher
-                        IconButton(
-                            onClick = {
-                                val nextShape = when (shapeType) {
-                                    "circle" -> "rounded-square"
-                                    "rounded-square" -> "rectangle"
-                                    else -> "circle"
-                                }
-                                onShapeChanged(nextShape)
-                            },
-                            modifier = Modifier
-                                .size(28.dp)
-                                .background(Color(0xFF2E2E2E), CircleShape)
-                        ) {
-                            Icon(
-                                when (shapeType) {
-                                    "rounded-square" -> Icons.Default.Square
-                                    "rectangle" -> Icons.Default.AspectRatio
-                                    else -> Icons.Default.Circle
-                                },
-                                contentDescription = "Cycle Shape",
-                                tint = Color.White,
-                                modifier = Modifier.size(16.dp)
-                            )
-                        }
-                    }
-
-                    Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                        // Size switcher
-                        IconButton(
-                            onClick = {
-                                val (nextSize, nextScale) = when (sizeType) {
-                                    "small" -> "medium" to 0.26f
-                                    "medium" -> "large" to 0.35f
-                                    else -> "small" to 0.20f
-                                }
-                                onSizeChanged(nextSize, nextScale)
-                            },
-                            modifier = Modifier
-                                .size(28.dp)
-                                .background(Color(0xFF2E2E2E), CircleShape)
-                        ) {
-                            Icon(
-                                Icons.Default.PhotoSizeSelectLarge,
-                                contentDescription = "Cycle Size",
-                                tint = Color.White,
-                                modifier = Modifier.size(16.dp)
-                            )
-                        }
-
-                        // Mirror toggle
-                        IconButton(
-                            onClick = { onMirrorToggled(!isMirrored) },
-                            modifier = Modifier
-                                .size(28.dp)
-                                .background(if (isMirrored) parsedBorderColor else Color(0xFF2E2E2E), CircleShape)
-                        ) {
-                            Icon(
-                                Icons.Default.Flip,
-                                contentDescription = "Mirror Preview",
-                                tint = Color.White,
-                                modifier = Modifier.size(16.dp)
-                            )
-                        }
-                    }
-                }
+                Icon(
+                    imageVector = Icons.Default.Close,
+                    contentDescription = "Cancel and Close FaceCam",
+                    tint = Color.White,
+                    modifier = Modifier.size(18.dp)
+                )
             }
         }
     }
