@@ -248,7 +248,7 @@ class CaptureLauncherActivity : ComponentActivity() {
         val imageReader = ImageReader.newInstance(width, height, PixelFormat.RGBA_8888, 2)
         val virtualDisplay = try {
             projection.createVirtualDisplay(
-                "ScreenPro_Single_Shot",
+                "ScreenRecorder_Single_Shot",
                 width,
                 height,
                 dpi,
@@ -292,10 +292,10 @@ class CaptureLauncherActivity : ComponentActivity() {
 
                 CoroutineScope(Dispatchers.IO).launch {
                     val mediaStoreRepository = MediaStoreRepository(applicationContext)
-                    val title = "Screenshot_${System.currentTimeMillis()}"
+                    val title = "ScreenRecorder_Screenshot_${System.currentTimeMillis()}"
                     val mediaItem = mediaStoreRepository.saveScreenshotToAppLibrary(cropped, title)
                     try {
-                        mediaStoreRepository.saveScreenshotToMediaStore(cropped, title)
+                        mediaStoreRepository.saveScreenshotToPhoneGallery(mediaItem)
                     } catch (e: Exception) {
                         e.printStackTrace()
                     }

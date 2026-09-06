@@ -219,8 +219,8 @@ class ScreenRecordingManager(private val context: Context) {
         }
 
         try {
-            val outputDir = File(context.cacheDir, "screenpro_segments").apply { mkdirs() }
-            val outputFile = File(outputDir, "ScreenPro_seg_${System.currentTimeMillis()}.mp4")
+            val outputDir = File(context.cacheDir, "screenrecorder_segments").apply { mkdirs() }
+            val outputFile = File(outputDir, "ScreenRecorder_seg_${System.currentTimeMillis()}.mp4")
             currentOutputFile = outputFile
 
             val recorder = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
@@ -328,7 +328,7 @@ class ScreenRecordingManager(private val context: Context) {
 
                 if (!isDualOnly && projection != null) {
                     virtualDisplay = projection.createVirtualDisplay(
-                        "ScreenProCaptureDisplay",
+                        "ScreenRecorderCaptureDisplay",
                         encWidth,
                         encHeight,
                         densityDpi,
@@ -355,7 +355,7 @@ class ScreenRecordingManager(private val context: Context) {
                 }
             } else {
                 virtualDisplay = projection?.createVirtualDisplay(
-                    "ScreenProCaptureDisplay",
+                    "ScreenRecorderCaptureDisplay",
                     encWidth,
                     encHeight,
                     densityDpi,
@@ -471,7 +471,7 @@ class ScreenRecordingManager(private val context: Context) {
                 if (segmentsToSave.size == 1) {
                     fileToSave = segmentsToSave[0]
                 } else {
-                    val mergedFile = File(context.cacheDir, "ScreenPro_Merged_${System.currentTimeMillis()}.mp4")
+                    val mergedFile = File(context.cacheDir, "ScreenRecorder_Merged_${System.currentTimeMillis()}.mp4")
                     val merged = VideoMerger.mergeVideos(segmentsToSave, mergedFile)
                     fileToSave = if (merged && mergedFile.exists() && mergedFile.length() > 0) {
                         mergedFile
@@ -480,7 +480,13 @@ class ScreenRecordingManager(private val context: Context) {
                     }
                 }
 
-                val appItem = mediaStoreRepository.saveVideoToAppLibrary(fileToSave)
+                val title = "ScreenRecorder_${System.currentTimeMillis()}"
+                val appItem = mediaStoreRepository.saveVideoToAppLibrary(fileToSave, title)
+                try {
+                    mediaStoreRepository.saveVideoToPhoneGallery(appItem)
+                } catch (e: Exception) {
+                    Log.w(tag, "Failed to auto-save to gallery: ${e.message}")
+                }
                 savedUri = appItem.uri
                 success = true
 
@@ -554,7 +560,7 @@ class ScreenRecordingManager(private val context: Context) {
         val imageReader = ImageReader.newInstance(width, height, PixelFormat.RGBA_8888, 2)
         val vDisplay = try {
             projection.createVirtualDisplay(
-                "ScreenProScreenshotDisplay",
+                "ScreenRecorderScreenshotDisplay",
                 width,
                 height,
                 density,

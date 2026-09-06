@@ -10,7 +10,7 @@ android {
     compileSdk = 35
 
     defaultConfig {
-        applicationId = "com.aistudio.screenrecorder.pvqzkm"
+        applicationId = "co.freescreenrecorder.ap"
         minSdk = 26
         targetSdk = 35
         versionCode = 1

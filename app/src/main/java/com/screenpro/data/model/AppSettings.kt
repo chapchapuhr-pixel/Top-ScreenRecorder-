@@ -39,7 +39,7 @@ data class AppSettings(
     val audioSampleRate: Int = 48_000,
     val audioChannels: Int = 2,
     val videoSizePreset: String = "fullscreen", // "fullscreen", "youtube", "social", "square", "cinema", "tablet", "auto"
-    val filenamePrefix: String = "ScreenPro_",
+    val filenamePrefix: String = "ScreenRecorder_",
     val preserveSource: Boolean = true,
     val themeMode: String = "dark" // "dark", "light", "system"
 )

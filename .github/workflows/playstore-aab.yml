@@ -1,0 +1,170 @@
+name: Build & Sign Play Store AAB
+
+on:
+  push:
+    branches: [ main, master ]
+    tags: [ 'v*' ]
+  pull_request:
+    branches: [ main, master ]
+  workflow_dispatch:
+    inputs:
+      version_name:
+        description: 'Version Name (e.g. 1.0.0)'
+        required: false
+        default: '1.0.0'
+      track:
+        description: 'Target Track'
+        required: true
+        default: 'production'
+        type: choice
+        options:
+          - 'internal'
+          - 'alpha'
+          - 'beta'
+          - 'production'
+
+permissions:
+  contents: write
+
+jobs:
+  build-playstore-aab:
+    name: Build & Sign Google Play App Bundle (.aab)
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '17'
+          cache: 'gradle'
+
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.11.1'
+
+      - name: Prepare Gradle Wrapper
+        run: |
+          mkdir -p gradle/wrapper
+          if [ ! -f "gradle/wrapper/gradle-wrapper.jar" ] || [ ! -s "gradle/wrapper/gradle-wrapper.jar" ]; then
+            echo "Fetching official Gradle 8.11.1 wrapper jar..."
+            curl -sLo gradle/wrapper/gradle-wrapper.jar https://raw.githubusercontent.com/gradle/gradle/v8.11.1/gradle/wrapper/gradle-wrapper.jar || true
+          fi
+          if [ ! -f "gradle/wrapper/gradle-wrapper.jar" ] || [ ! -s "gradle/wrapper/gradle-wrapper.jar" ]; then
+            echo "Regenerating wrapper with Gradle CLI..."
+            gradle wrapper --gradle-version 8.11.1 --distribution-type bin
+          fi
+          chmod +x gradlew
+
+      - name: Restore Signing Keystores
+        run: |
+          # 1. Restore debug keystore
+          if [ -f "debug.keystore.base64" ] && [ ! -f "debug.keystore" ]; then
+            echo "Restoring debug.keystore..."
+            base64 -d debug.keystore.base64 > debug.keystore
+          elif [ ! -f "debug.keystore" ]; then
+            keytool -genkey -v -keystore debug.keystore -storepass android -alias androiddebugkey -keypass android -keyalg RSA -keysize 2048 -validity 10000 -dname "CN=Android Debug,O=Android,C=US"
+          fi
+
+          # 2. Restore production upload keystore
+          if [ -n "${{ secrets.RELEASE_KEYSTORE_BASE64 }}" ]; then
+            echo "Restoring release keystore from GitHub Secrets..."
+            echo "${{ secrets.RELEASE_KEYSTORE_BASE64 }}" | base64 -d > release-upload.jks
+          elif [ -f "release-upload.jks.base64" ] && [ ! -f "release-upload.jks" ]; then
+            echo "Restoring release keystore from repo base64..."
+            base64 -d release-upload.jks.base64 > release-upload.jks
+          fi
+
+          if [ ! -f "release-upload.jks" ]; then
+            echo "Generating production upload keystore for Id: co.freescreenrecorder.ap..."
+            keytool -genkey -v -keystore release-upload.jks \
+              -storepass 52775277Tanzania -keypass 52775277Tanzania \
+              -alias upload -keyalg RSA -keysize 2048 -validity 10000 \
+              -dname "CN=Free Screen Recorder, OU=Release, O=FreeScreenRecorder, C=US"
+          fi
+
+          ls -lh *.keystore *.jks 2>/dev/null || true
+
+      - name: Build Release Android App Bundle (AAB)
+        run: |
+          if [ -f "gradle/wrapper/gradle-wrapper.jar" ] && [ -x "./gradlew" ]; then
+            ./gradlew bundleRelease --stacktrace --no-daemon
+          else
+            gradle bundleRelease --stacktrace --no-daemon
+          fi
+
+      - name: Sign & Verify Play Store AAB
+        id: sign-aab
+        run: |
+          mkdir -p output-bundle
+
+          RAW_AAB=$(find app/build/outputs/bundle/release -name "*.aab" 2>/dev/null | head -n 1)
+          if [ -z "$RAW_AAB" ]; then
+            RAW_AAB=$(find . -path "*/build/outputs/bundle/release/*.aab" 2>/dev/null | head -n 1)
+          fi
+
+          if [ -n "$RAW_AAB" ] && [ -f "$RAW_AAB" ]; then
+            TARGET_AAB="output-bundle/FreeScreenRecorder-release.aab"
+            cp "$RAW_AAB" "$TARGET_AAB"
+
+            echo "Professionally signing AAB with upload key (alias: upload)..."
+            jarsigner -verbose -sigalg SHA256withRSA -digestalg SHA-256 \
+              -keystore release-upload.jks \
+              -storepass 52775277Tanzania \
+              -keypass 52775277Tanzania \
+              "$TARGET_AAB" upload
+
+            echo "Verifying signed AAB..."
+            jarsigner -verify -verbose -certs "$TARGET_AAB"
+
+            AAB_SIZE=$(ls -lh "$TARGET_AAB" | awk '{print $5}')
+            AAB_SHA=$(sha256sum "$TARGET_AAB" | awk '{print $1}')
+
+            echo "aab_exists=true" >> $GITHUB_OUTPUT
+            echo "aab_size=$AAB_SIZE" >> $GITHUB_OUTPUT
+            echo "aab_sha=$AAB_SHA" >> $GITHUB_OUTPUT
+          else
+            echo "ERROR: Release AAB was not found!"
+            echo "aab_exists=false" >> $GITHUB_OUTPUT
+            exit 1
+          fi
+
+      - name: Generate Play Store Summary
+        if: steps.sign-aab.outputs.aab_exists == 'true'
+        run: |
+          echo "### 🚀 Google Play Store AAB Package" >> $GITHUB_STEP_SUMMARY
+          echo "| Property | Value |" >> $GITHUB_STEP_SUMMARY
+          echo "|---|---|" >> $GITHUB_STEP_SUMMARY
+          echo "| **Application ID** | \`co.freescreenrecorder.ap\` |" >> $GITHUB_STEP_SUMMARY
+          echo "| **Key Alias** | \`upload\` |" >> $GITHUB_STEP_SUMMARY
+          echo "| **Artifact** | \`FreeScreenRecorder-release.aab\` |" >> $GITHUB_STEP_SUMMARY
+          echo "| **Bundle Size** | \`${{ steps.sign-aab.outputs.aab_size }}\` |" >> $GITHUB_STEP_SUMMARY
+          echo "| **SHA-256 Checksum** | \`${{ steps.sign-aab.outputs.aab_sha }}\` |" >> $GITHUB_STEP_SUMMARY
+          echo "| **Signing Status** | Signed & Verified with SHA256withRSA |" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "This bundle is ready to upload directly to the **Google Play Console** under Production, Open Testing, Closed Testing, or Internal App Sharing." >> $GITHUB_STEP_SUMMARY
+
+      - name: Upload Play Store AAB Artifact
+        if: steps.sign-aab.outputs.aab_exists == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: FreeScreenRecorder-PlayStore-AAB
+          path: output-bundle/FreeScreenRecorder-release.aab
+          retention-days: 90
+
+      - name: Attach AAB to GitHub Release (Tags / Releases)
+        if: startsWith(github.ref, 'refs/tags/v') || github.event_name == 'release'
+        uses: softprops/action-gh-release@v2
+        with:
+          files: output-bundle/FreeScreenRecorder-release.aab
+          generate_release_notes: true
+          draft: false
+          prerelease: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

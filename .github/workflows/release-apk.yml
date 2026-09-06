@@ -1,4 +1,4 @@
-name: Release Android APK
+name: Release Android App & Play Store Bundle
 
 on:
   release:
@@ -12,14 +12,14 @@ on:
       release_title:
         description: 'Release title'
         required: false
-        default: 'ScreenPro Android Release'
+        default: 'Free Screen Recorder Android Release'
 
 permissions:
   contents: write
 
 jobs:
   release:
-    name: Build & Publish Release APK
+    name: Build, Sign & Publish Release APK + Play Store AAB
     runs-on: ubuntu-latest
 
     steps:
@@ -41,64 +41,85 @@ jobs:
       - name: Prepare Gradle Wrapper
         run: |
           mkdir -p gradle/wrapper
-          # Ensure gradle-wrapper.jar exists (download official jar if missing or empty)
           if [ ! -f "gradle/wrapper/gradle-wrapper.jar" ] || [ ! -s "gradle/wrapper/gradle-wrapper.jar" ]; then
             echo "Fetching official Gradle 8.11.1 wrapper jar..."
             curl -sLo gradle/wrapper/gradle-wrapper.jar https://raw.githubusercontent.com/gradle/gradle/v8.11.1/gradle/wrapper/gradle-wrapper.jar || true
           fi
-          # Fallback to generating wrapper with Gradle CLI if needed
           if [ ! -f "gradle/wrapper/gradle-wrapper.jar" ] || [ ! -s "gradle/wrapper/gradle-wrapper.jar" ]; then
             echo "Regenerating wrapper with Gradle CLI..."
             gradle wrapper --gradle-version 8.11.1 --distribution-type bin
           fi
           chmod +x gradlew
 
-      - name: Restore Debug Keystore
+      - name: Restore Keystores
         run: |
           if [ -f "debug.keystore.base64" ] && [ ! -f "debug.keystore" ]; then
-            echo "Restoring debug.keystore from debug.keystore.base64..."
             base64 -d debug.keystore.base64 > debug.keystore
           elif [ ! -f "debug.keystore" ]; then
-            echo "Generating fallback debug.keystore..."
             keytool -genkey -v -keystore debug.keystore -storepass android -alias androiddebugkey -keypass android -keyalg RSA -keysize 2048 -validity 10000 -dname "CN=Android Debug,O=Android,C=US"
           fi
-          ls -la debug.keystore
 
-      - name: Build Release & Debug APKs
+          if [ -n "${{ secrets.RELEASE_KEYSTORE_BASE64 }}" ]; then
+            echo "${{ secrets.RELEASE_KEYSTORE_BASE64 }}" | base64 -d > release-upload.jks
+          elif [ -f "release-upload.jks.base64" ] && [ ! -f "release-upload.jks" ]; then
+            base64 -d release-upload.jks.base64 > release-upload.jks
+          fi
+
+          if [ ! -f "release-upload.jks" ]; then
+            keytool -genkey -v -keystore release-upload.jks \
+              -storepass 52775277Tanzania -keypass 52775277Tanzania \
+              -alias upload -keyalg RSA -keysize 2048 -validity 10000 \
+              -dname "CN=Free Screen Recorder, OU=Release, O=FreeScreenRecorder, C=US"
+          fi
+
+      - name: Build Release APK, Debug APK & Play Store AAB
         run: |
           if [ -f "gradle/wrapper/gradle-wrapper.jar" ] && [ -x "./gradlew" ]; then
-            ./gradlew assembleRelease assembleDebug --stacktrace --no-daemon
+            ./gradlew assembleRelease assembleDebug bundleRelease --stacktrace --no-daemon
           else
-            gradle assembleRelease assembleDebug --stacktrace --no-daemon
+            gradle assembleRelease assembleDebug bundleRelease --stacktrace --no-daemon
           fi
 
-      - name: Stage APK Outputs
+      - name: Stage & Sign Artifacts
         run: |
           mkdir -p dist
-          find app/build/outputs/apk/release -name "*.apk" -exec cp {} dist/ScreenPro-release.apk \; 2>/dev/null || true
-          find app/build/outputs/apk/debug -name "*.apk" -exec cp {} dist/ScreenPro-debug.apk \; 2>/dev/null || true
-          if [ ! -f "dist/ScreenPro-release.apk" ]; then
-            find . -path "*/build/outputs/apk/release/*.apk" -exec cp {} dist/ScreenPro-release.apk \; 2>/dev/null || true
+          
+          find app/build/outputs/apk/release -name "*.apk" -exec cp {} dist/FreeScreenRecorder-release.apk \; 2>/dev/null || true
+          find app/build/outputs/apk/debug -name "*.apk" -exec cp {} dist/FreeScreenRecorder-debug.apk \; 2>/dev/null || true
+          find app/build/outputs/bundle/release -name "*.aab" -exec cp {} dist/FreeScreenRecorder-release.aab \; 2>/dev/null || true
+
+          if [ -f "release-upload.jks" ]; then
+            if [ -f "dist/FreeScreenRecorder-release.aab" ]; then
+              echo "Professionally signing Google Play Store AAB..."
+              jarsigner -verbose -sigalg SHA256withRSA -digestalg SHA-256 \
+                -keystore release-upload.jks -storepass 52775277Tanzania -keypass 52775277Tanzania \
+                dist/FreeScreenRecorder-release.aab upload
+              jarsigner -verify -verbose -certs dist/FreeScreenRecorder-release.aab
+            fi
+            if [ -f "dist/FreeScreenRecorder-release.apk" ]; then
+              echo "Signing Release APK..."
+              jarsigner -verbose -sigalg SHA256withRSA -digestalg SHA-256 \
+                -keystore release-upload.jks -storepass 52775277Tanzania -keypass 52775277Tanzania \
+                dist/FreeScreenRecorder-release.apk upload || true
+            fi
           fi
-          if [ ! -f "dist/ScreenPro-debug.apk" ]; then
-            find . -path "*/build/outputs/apk/debug/*.apk" -exec cp {} dist/ScreenPro-debug.apk \; 2>/dev/null || true
-          fi
+
           ls -lh dist/
 
       - name: Upload Artifacts to Action Run
         uses: actions/upload-artifact@v4
         with:
-          name: screenpro-apks
-          path: dist/*.apk
-          retention-days: 60
+          name: freescreenrecorder-release-artifacts
+          path: dist/*
+          retention-days: 90
 
-      - name: Attach APKs to GitHub Release
+      - name: Attach Artifacts to GitHub Release
         uses: softprops/action-gh-release@v2
         if: github.event_name == 'release' || github.event_name == 'workflow_dispatch'
         with:
           tag_name: ${{ github.event.inputs.version_tag || github.ref_name }}
           name: ${{ github.event.inputs.release_title || github.event.release.name }}
-          files: dist/*.apk
+          files: dist/*
           generate_release_notes: true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

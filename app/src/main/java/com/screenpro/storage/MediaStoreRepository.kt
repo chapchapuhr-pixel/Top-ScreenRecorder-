@@ -30,7 +30,11 @@ import java.io.OutputStream
 class MediaStoreRepository(private val context: Context) {
 
     val appLibraryDir: File by lazy {
-        File(context.filesDir, "ScreenProLibrary").apply { mkdirs() }
+        File(context.filesDir, "ScreenRecorderLibrary").apply { mkdirs() }
+    }
+
+    private val legacyLibraryDir: File by lazy {
+        File(context.filesDir, "ScreenProLibrary")
     }
 
     private val prefs = context.getSharedPreferences("screenpro_saved_status", Context.MODE_PRIVATE)
@@ -48,7 +52,7 @@ class MediaStoreRepository(private val context: Context) {
      * This keeps the video private inside the app and DOES NOT post it to the phone gallery.
      */
     suspend fun saveVideoToAppLibrary(sourceFile: File, title: String? = null): MediaItem = withContext(Dispatchers.IO) {
-        val cleanTitle = title?.takeIf { it.isNotBlank() } ?: "ScreenPro_${System.currentTimeMillis()}"
+        val cleanTitle = title?.takeIf { it.isNotBlank() } ?: "ScreenRecorder_${System.currentTimeMillis()}"
         val destFileName = if (cleanTitle.endsWith(".mp4", ignoreCase = true)) cleanTitle else "$cleanTitle.mp4"
         val destFile = File(appLibraryDir, destFileName)
 
@@ -105,7 +109,7 @@ class MediaStoreRepository(private val context: Context) {
      */
     suspend fun saveScreenshotToAppLibrary(
         bitmap: Bitmap,
-        title: String = "ScreenPro_Screenshot_${System.currentTimeMillis()}"
+        title: String = "ScreenRecorder_Screenshot_${System.currentTimeMillis()}"
     ): MediaItem = withContext(Dispatchers.IO) {
         val filename = if (title.endsWith(".png", ignoreCase = true)) title else "$title.png"
         val destFile = File(appLibraryDir, filename)
@@ -153,7 +157,7 @@ class MediaStoreRepository(private val context: Context) {
             put(MediaStore.Video.Media.DATE_MODIFIED, System.currentTimeMillis() / 1000)
 
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-                put(MediaStore.Video.Media.RELATIVE_PATH, "${Environment.DIRECTORY_MOVIES}/ScreenPro")
+                put(MediaStore.Video.Media.RELATIVE_PATH, "${Environment.DIRECTORY_MOVIES}/ScreenRecorder")
                 put(MediaStore.Video.Media.IS_PENDING, 1)
             }
         }
@@ -212,7 +216,7 @@ class MediaStoreRepository(private val context: Context) {
             put(MediaStore.Images.Media.DATE_MODIFIED, System.currentTimeMillis() / 1000)
 
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-                put(MediaStore.Images.Media.RELATIVE_PATH, "${Environment.DIRECTORY_PICTURES}/ScreenPro")
+                put(MediaStore.Images.Media.RELATIVE_PATH, "${Environment.DIRECTORY_PICTURES}/ScreenRecorder")
                 put(MediaStore.Images.Media.IS_PENDING, 1)
             }
         }
@@ -257,19 +261,22 @@ class MediaStoreRepository(private val context: Context) {
     }
 
     fun getShareableUri(item: MediaItem): Uri {
-        return if (item.localFilePath != null) {
-            try {
-                FileProvider.getUriForFile(
-                    context,
-                    "${context.packageName}.fileprovider",
-                    File(item.localFilePath)
-                )
-            } catch (e: Exception) {
-                item.uri
+        val localPath = item.localFilePath ?: if (item.uri.scheme == "file") item.uri.path else null
+        if (localPath != null) {
+            val file = File(localPath)
+            if (file.exists()) {
+                return try {
+                    FileProvider.getUriForFile(
+                        context,
+                        "${context.packageName}.fileprovider",
+                        file
+                    )
+                } catch (e: Exception) {
+                    item.uri
+                }
             }
-        } else {
-            item.uri
         }
+        return item.uri
     }
 
     /**
@@ -279,8 +286,9 @@ class MediaStoreRepository(private val context: Context) {
         val list = mutableListOf<MediaItem>()
         val seenFilenames = mutableSetOf<String>()
 
-        // 1. First, load items from the App Library (private folder)
-        val appFiles = appLibraryDir.listFiles() ?: emptyArray()
+        // 1. First, load items from the App Library folders (both current and legacy)
+        val allAppDirs = listOfNotNull(appLibraryDir, legacyLibraryDir.takeIf { it.exists() })
+        val appFiles = allAppDirs.flatMap { it.listFiles()?.toList() ?: emptyList() }
         for (f in appFiles) {
             if (!f.isFile || f.length() == 0L) continue
             val fname = f.name
@@ -540,7 +548,7 @@ class MediaStoreRepository(private val context: Context) {
             put(MediaStore.Video.Media.DATE_MODIFIED, System.currentTimeMillis() / 1000)
 
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-                put(MediaStore.Video.Media.RELATIVE_PATH, "${Environment.DIRECTORY_MOVIES}/ScreenPro")
+                put(MediaStore.Video.Media.RELATIVE_PATH, "${Environment.DIRECTORY_MOVIES}/ScreenRecorder")
                 put(MediaStore.Video.Media.IS_PENDING, 1)
             }
         }
@@ -570,7 +578,7 @@ class MediaStoreRepository(private val context: Context) {
         return itemUri
     }
 
-    fun saveScreenshotToMediaStore(bitmap: Bitmap, title: String = "ScreenPro_Screenshot_${System.currentTimeMillis()}"): Uri? {
+    fun saveScreenshotToMediaStore(bitmap: Bitmap, title: String = "ScreenRecorder_Screenshot_${System.currentTimeMillis()}"): Uri? {
         val filename = "$title.png"
         val contentValues = ContentValues().apply {
             put(MediaStore.Images.Media.DISPLAY_NAME, filename)
@@ -580,7 +588,7 @@ class MediaStoreRepository(private val context: Context) {
             put(MediaStore.Images.Media.DATE_MODIFIED, System.currentTimeMillis() / 1000)
 
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-                put(MediaStore.Images.Media.RELATIVE_PATH, "${Environment.DIRECTORY_PICTURES}/ScreenPro")
+                put(MediaStore.Images.Media.RELATIVE_PATH, "${Environment.DIRECTORY_PICTURES}/ScreenRecorder")
                 put(MediaStore.Images.Media.IS_PENDING, 1)
             }
         }

@@ -5,8 +5,11 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
@@ -15,6 +18,9 @@ import java.io.File
 object RecordingController {
     private val scope = CoroutineScope(Dispatchers.Main + Job())
     private var timerJob: Job? = null
+
+    private val _recordingCompletedEvent = MutableSharedFlow<Unit>(extraBufferCapacity = 2)
+    val recordingCompletedEvent: SharedFlow<Unit> = _recordingCompletedEvent.asSharedFlow()
 
     private val _isRecording = MutableStateFlow(false)
     val isRecording: StateFlow<Boolean> = _isRecording.asStateFlow()
@@ -98,6 +104,7 @@ object RecordingController {
         timerJob?.cancel()
         timerJob = null
         FaceCamController.setFaceCamEnabled(false)
+        _recordingCompletedEvent.tryEmit(Unit)
     }
 
     fun setError(error: String?) {

@@ -353,10 +353,10 @@ class DualCameraRecordingManager(private val context: Context) {
             val file = currentOutputFile
             if (file != null && file.exists() && file.length() > 0) {
                 try {
-                    val title = "DualCam_${System.currentTimeMillis()}"
+                    val title = "ScreenRecorder_DualCam_${System.currentTimeMillis()}"
                     mediaItem = mediaStoreRepository.saveVideoToAppLibrary(file, title)
                     try {
-                        mediaStoreRepository.saveVideoToMediaStore(file, title)
+                        mediaStoreRepository.saveVideoToPhoneGallery(mediaItem)
                     } catch (e: Exception) {
                         Log.w(tag, "Failed to export to MediaStore: ${e.message}")
                     }

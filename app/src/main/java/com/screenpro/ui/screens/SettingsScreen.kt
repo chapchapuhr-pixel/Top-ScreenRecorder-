@@ -391,7 +391,7 @@ fun SettingsScreen(
                                             }
                                             Spacer(modifier = Modifier.height(4.dp))
                                             Text(
-                                                "Android requires 'Modify System Settings' permission so ScreenPro can toggle native touch circles during recordings.",
+                                                "Android requires 'Modify System Settings' permission so ScreenRecorder can toggle native touch circles during recordings.",
                                                 color = Color(0xFFFFD54F),
                                                 fontSize = 11.sp
                                             )
@@ -973,8 +973,8 @@ fun SettingsScreen(
                             Column(modifier = Modifier.padding(14.dp)) {
                                 Text("Storage Locations", fontWeight = FontWeight.Bold, color = Color.White)
                                 Spacer(modifier = Modifier.height(4.dp))
-                                Text("• Videos: Movies/ScreenPro (Scoped Storage)", color = Color.LightGray, fontSize = 13.sp)
-                                Text("• Screenshots: Pictures/ScreenPro (Scoped Storage)", color = Color.LightGray, fontSize = 13.sp)
+                                Text("• Videos: Movies/ScreenRecorder (Scoped Storage)", color = Color.LightGray, fontSize = 13.sp)
+                                Text("• Screenshots: Pictures/ScreenRecorder (Scoped Storage)", color = Color.LightGray, fontSize = 13.sp)
                                 Spacer(modifier = Modifier.height(6.dp))
                                 Text("Zero MANAGE_EXTERNAL_STORAGE required. Fully compliant with Android Scoped Storage and Google Play policies.", color = Color.Gray, fontSize = 11.sp)
                             }

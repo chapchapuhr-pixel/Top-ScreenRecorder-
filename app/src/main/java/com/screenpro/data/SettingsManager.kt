@@ -42,7 +42,7 @@ class SettingsManager(context: Context) {
             audioSampleRate = prefs.getInt("audioSampleRate", 48_000),
             audioChannels = prefs.getInt("audioChannels", 2),
             videoSizePreset = prefs.getString("videoSizePreset", "fullscreen") ?: "fullscreen",
-            filenamePrefix = prefs.getString("filenamePrefix", "ScreenPro_") ?: "ScreenPro_",
+            filenamePrefix = prefs.getString("filenamePrefix", "ScreenRecorder_") ?: "ScreenRecorder_",
             preserveSource = prefs.getBoolean("preserveSource", true),
             themeMode = prefs.getString("themeMode", "dark") ?: "dark"
         )

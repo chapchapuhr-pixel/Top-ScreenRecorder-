@@ -37,7 +37,9 @@ import androidx.core.content.ContextCompat
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
+import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.lifecycleScope
+import androidx.lifecycle.repeatOnLifecycle
 import com.screenpro.ads.AppOpenManager
 import com.screenpro.ads.RewardAdManager
 import com.screenpro.data.SettingsManager
@@ -60,6 +62,7 @@ import com.screenpro.ui.screens.VideoEditorScreen
 import com.screenpro.ui.screens.VideoPlayerScreen
 import com.screenpro.ui.theme.ScreenProTheme
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.File
@@ -310,6 +313,16 @@ class MainActivity : ComponentActivity() {
         checkAndRequestPermissions()
         refreshMediaItems()
         handleIncomingIntent(intent)
+
+        lifecycleScope.launch {
+            repeatOnLifecycle(Lifecycle.State.STARTED) {
+                RecordingController.recordingCompletedEvent.collect {
+                    refreshMediaItems()
+                    delay(800)
+                    refreshMediaItems()
+                }
+            }
+        }
 
         setContent {
             val settings by settingsManager.settings.collectAsState()
@@ -769,7 +782,12 @@ class MainActivity : ComponentActivity() {
             action = ScreenRecordService.ACTION_STOP
         }
         startService(stopIntent)
-        refreshMediaItems()
+        lifecycleScope.launch {
+            delay(500)
+            refreshMediaItems()
+            delay(1200)
+            refreshMediaItems()
+        }
     }
 
     private fun pauseRecording() {
@@ -793,9 +811,20 @@ class MainActivity : ComponentActivity() {
             }
             startService(screenIntent)
             Toast.makeText(this, "Screenshot captured!", Toast.LENGTH_SHORT).show()
-            refreshMediaItems()
+            lifecycleScope.launch {
+                delay(600)
+                refreshMediaItems()
+                delay(1500)
+                refreshMediaItems()
+            }
         } else {
             CaptureLauncherActivity.captureScreenshot(applicationContext)
+            lifecycleScope.launch {
+                delay(1000)
+                refreshMediaItems()
+                delay(2000)
+                refreshMediaItems()
+            }
         }
     }
 
@@ -828,14 +857,40 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun shareMedia(item: MediaItem) {
-        val shareIntent = Intent(Intent.ACTION_SEND).apply {
-            type = item.mimeType
-            putExtra(Intent.EXTRA_STREAM, item.uri)
-            putExtra(Intent.EXTRA_SUBJECT, item.title)
-            putExtra(Intent.EXTRA_TEXT, "Shared from ScreenPro Recorder")
-            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+        // Show rewarded ad first as requested before showing share dialog
+        Toast.makeText(this, "Preparing share...", Toast.LENGTH_SHORT).show()
+        RewardAdManager.showRewardAd(
+            activity = this,
+            onRewardGranted = {
+                executeShare(item)
+            },
+            onComplete = {
+                // Ad interaction finished
+            }
+        )
+    }
+
+    private fun executeShare(item: MediaItem) {
+        try {
+            val shareUri = mediaStoreRepository.getShareableUri(item)
+            val shareIntent = Intent(Intent.ACTION_SEND).apply {
+                type = item.mimeType
+                putExtra(Intent.EXTRA_STREAM, shareUri)
+                putExtra(Intent.EXTRA_SUBJECT, item.title)
+                putExtra(Intent.EXTRA_TEXT, "Shared from Free Screen Recorder")
+                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+            }
+            val chooser = Intent.createChooser(shareIntent, "Share recording via")
+            val resInfoList = packageManager.queryIntentActivities(chooser, PackageManager.MATCH_DEFAULT_ONLY)
+            for (resolveInfo in resInfoList) {
+                val packageName = resolveInfo.activityInfo.packageName
+                grantUriPermission(packageName, shareUri, Intent.FLAG_GRANT_READ_URI_PERMISSION)
+            }
+            startActivity(chooser)
+        } catch (e: Exception) {
+            android.util.Log.e("MainActivity", "Error sharing media", e)
+            Toast.makeText(this, "Could not share recording: ${e.message}", Toast.LENGTH_SHORT).show()
         }
-        startActivity(Intent.createChooser(shareIntent, "Share recording"))
     }
 
     private fun deleteMedia(item: MediaItem) {

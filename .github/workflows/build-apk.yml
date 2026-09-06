@@ -11,12 +11,12 @@ on:
       build_type:
         description: 'Build variant to assemble'
         required: true
-        default: 'both'
+        default: 'all'
         type: choice
         options:
           - 'debug'
           - 'release'
-          - 'both'
+          - 'all'
 
 permissions:
   contents: write
@@ -79,90 +79,127 @@ jobs:
             gradle assembleDebug --stacktrace --no-daemon
           fi
 
-      - name: Build Release APK
-        if: ${{ github.event_name != 'workflow_dispatch' || github.event.inputs.build_type == 'release' || github.event.inputs.build_type == 'both' }}
+      - name: Build Release APK & Bundle
+        if: ${{ github.event_name != 'workflow_dispatch' || github.event.inputs.build_type == 'release' || github.event.inputs.build_type == 'all' }}
         run: |
           if [ -f "gradle/wrapper/gradle-wrapper.jar" ] && [ -x "./gradlew" ]; then
-            ./gradlew assembleRelease --stacktrace --no-daemon
+            ./gradlew assembleRelease bundleRelease --stacktrace --no-daemon
           else
-            gradle assembleRelease --stacktrace --no-daemon
+            gradle assembleRelease bundleRelease --stacktrace --no-daemon
           fi
 
-      - name: Collect & Organize APK Artifacts
-        id: collect-apks
+      - name: Collect & Organize Artifacts
+        id: collect-artifacts
         run: |
-          mkdir -p output-apks
+          mkdir -p output-artifacts
           
+          # 1. Debug APK
           DEBUG_APK=$(find app/build/outputs/apk/debug -name "*.apk" 2>/dev/null | head -n 1)
           if [ -z "$DEBUG_APK" ]; then
             DEBUG_APK=$(find . -path "*/build/outputs/apk/debug/*.apk" 2>/dev/null | head -n 1)
           fi
           if [ -n "$DEBUG_APK" ] && [ -f "$DEBUG_APK" ]; then
-            cp "$DEBUG_APK" output-apks/ScreenPro-debug.apk
+            cp "$DEBUG_APK" output-artifacts/FreeScreenRecorder-debug.apk
             echo "has_debug=true" >> $GITHUB_OUTPUT
-            echo "Copied debug APK: $DEBUG_APK"
           else
             echo "has_debug=false" >> $GITHUB_OUTPUT
           fi
 
+          # 2. Release APK
           RELEASE_APK=$(find app/build/outputs/apk/release -name "*.apk" 2>/dev/null | head -n 1)
           if [ -z "$RELEASE_APK" ]; then
             RELEASE_APK=$(find . -path "*/build/outputs/apk/release/*.apk" 2>/dev/null | head -n 1)
           fi
           if [ -n "$RELEASE_APK" ] && [ -f "$RELEASE_APK" ]; then
-            cp "$RELEASE_APK" output-apks/ScreenPro-release.apk
+            cp "$RELEASE_APK" output-artifacts/FreeScreenRecorder-release.apk
             echo "has_release=true" >> $GITHUB_OUTPUT
-            echo "Copied release APK: $RELEASE_APK"
           else
             echo "has_release=false" >> $GITHUB_OUTPUT
           fi
 
-          ls -la output-apks/
+          # 3. Release AAB (Google Play App Bundle)
+          RELEASE_AAB=$(find app/build/outputs/bundle/release -name "*.aab" 2>/dev/null | head -n 1)
+          if [ -z "$RELEASE_AAB" ]; then
+            RELEASE_AAB=$(find . -path "*/build/outputs/bundle/release/*.aab" 2>/dev/null | head -n 1)
+          fi
+          if [ -n "$RELEASE_AAB" ] && [ -f "$RELEASE_AAB" ]; then
+            cp "$RELEASE_AAB" output-artifacts/FreeScreenRecorder-release.aab
+            echo "has_aab=true" >> $GITHUB_OUTPUT
+          else
+            echo "has_aab=false" >> $GITHUB_OUTPUT
+          fi
+
+          # 4. Professionally sign with upload key
+          if [ -f "release-upload.jks.base64" ] && [ ! -f "release-upload.jks" ]; then
+            base64 -d release-upload.jks.base64 > release-upload.jks
+          fi
+          if [ -f "release-upload.jks" ]; then
+            if [ -f "output-artifacts/FreeScreenRecorder-release.aab" ]; then
+              jarsigner -verbose -sigalg SHA256withRSA -digestalg SHA-256 \
+                -keystore release-upload.jks -storepass 52775277Tanzania -keypass 52775277Tanzania \
+                output-artifacts/FreeScreenRecorder-release.aab upload
+              jarsigner -verify -verbose -certs output-artifacts/FreeScreenRecorder-release.aab
+            fi
+            if [ -f "output-artifacts/FreeScreenRecorder-release.apk" ]; then
+              jarsigner -verbose -sigalg SHA256withRSA -digestalg SHA-256 \
+                -keystore release-upload.jks -storepass 52775277Tanzania -keypass 52775277Tanzania \
+                output-artifacts/FreeScreenRecorder-release.apk upload || true
+            fi
+          fi
+
+          ls -lh output-artifacts/
 
       - name: Generate Build Checksums & Summary
         run: |
-          echo "### 📱 Android APK Build Summary" >> $GITHUB_STEP_SUMMARY
-          echo "| File | Size | SHA-256 Checksum |" >> $GITHUB_STEP_SUMMARY
-          echo "|---|---|---|" >> $GITHUB_STEP_SUMMARY
+          echo "### 📱 Android Build Summary (ID: co.freescreenrecorder.ap)" >> $GITHUB_STEP_SUMMARY
+          echo "| File | Size | SHA-256 Checksum | Target |" >> $GITHUB_STEP_SUMMARY
+          echo "|---|---|---|---|" >> $GITHUB_STEP_SUMMARY
           
-          cd output-apks
-          for f in *.apk; do
+          cd output-artifacts
+          for f in *; do
             if [ -f "$f" ]; then
               SIZE=$(ls -lh "$f" | awk '{print $5}')
               SHA=$(sha256sum "$f" | awk '{print $1}')
-              echo "| **$f** | $SIZE | \`$SHA\` |" >> $GITHUB_STEP_SUMMARY
+              TARGET="Direct Install"
+              if [[ "$f" == *".aab" ]]; then
+                TARGET="Google Play Store"
+              fi
+              echo "| **$f** | $SIZE | \`$SHA\` | $TARGET |" >> $GITHUB_STEP_SUMMARY
             fi
           done
           cd ..
-          
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "**Installation Instructions:**" >> $GITHUB_STEP_SUMMARY
-          echo "\`\`\`bash" >> $GITHUB_STEP_SUMMARY
-          echo "# Install on connected Android device via ADB" >> $GITHUB_STEP_SUMMARY
-          echo "adb install -r output-apks/ScreenPro-debug.apk" >> $GITHUB_STEP_SUMMARY
-          echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
 
       - name: Upload Debug APK Artifact
-        if: steps.collect-apks.outputs.has_debug == 'true'
+        if: steps.collect-artifacts.outputs.has_debug == 'true'
         uses: actions/upload-artifact@v4
         with:
-          name: ScreenPro-debug-apk
-          path: output-apks/ScreenPro-debug.apk
+          name: FreeScreenRecorder-debug-apk
+          path: output-artifacts/FreeScreenRecorder-debug.apk
           retention-days: 30
 
       - name: Upload Release APK Artifact
-        if: steps.collect-apks.outputs.has_release == 'true'
+        if: steps.collect-artifacts.outputs.has_release == 'true'
         uses: actions/upload-artifact@v4
         with:
-          name: ScreenPro-release-apk
-          path: output-apks/ScreenPro-release.apk
+          name: FreeScreenRecorder-release-apk
+          path: output-artifacts/FreeScreenRecorder-release.apk
           retention-days: 30
+
+      - name: Upload Play Store AAB Artifact
+        if: steps.collect-artifacts.outputs.has_aab == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: FreeScreenRecorder-release-aab
+          path: output-artifacts/FreeScreenRecorder-release.aab
+          retention-days: 60
 
       - name: Create GitHub Release (Tags Only)
         if: startsWith(github.ref, 'refs/tags/v')
         uses: softprops/action-gh-release@v2
         with:
-          files: output-apks/*.apk
+          files: |
+            output-artifacts/*.apk
+            output-artifacts/*.aab
           generate_release_notes: true
           draft: false
           prerelease: false
