@@ -1,0 +1,290 @@
+<svg
+    xmlns="http://www.w3.org/2000/svg"
+    xmlns:xlink="http://www.w3.org/1999/xlink"
+    width="1024"
+    height="1024"
+    viewBox="0 0 1024 1024">
+
+  <defs>
+    <!-- Main orange/red background -->
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#f03b08"/>
+      <stop offset="45%" stop-color="#ff6800"/>
+      <stop offset="100%" stop-color="#ff2100"/>
+    </linearGradient>
+
+    <!-- Camera white body -->
+    <linearGradient id="cameraWhite" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#ffffff"/>
+      <stop offset="100%" stop-color="#fff8f2"/>
+    </linearGradient>
+
+    <!-- Orange lens -->
+    <radialGradient id="lensOuter">
+      <stop offset="0%" stop-color="#ffb12b"/>
+      <stop offset="55%" stop-color="#e84a08"/>
+      <stop offset="100%" stop-color="#9f2605"/>
+    </radialGradient>
+
+    <radialGradient id="lensCenter">
+      <stop offset="0%" stop-color="#ff6a00"/>
+      <stop offset="100%" stop-color="#d83200"/>
+    </radialGradient>
+
+    <!-- Glow -->
+    <filter id="glow" x="-100%" y="-100%" width="300%" height="300%">
+      <feGaussianBlur stdDeviation="8" result="blur"/>
+      <feMerge>
+        <feMergeNode in="blur"/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
+    </filter>
+
+    <!-- Shadow -->
+    <filter id="shadow" x="-30%" y="-30%" width="160%" height="160%">
+      <feDropShadow
+        dx="0"
+        dy="18"
+        stdDeviation="20"
+        flood-color="#000000"
+        flood-opacity=".45"/>
+    </filter>
+
+    <clipPath id="iconClip">
+      <rect x="125" y="125" width="774" height="774" rx="150"/>
+    </clipPath>
+  </defs>
+
+  <!-- Dark outer background -->
+  <rect width="1024" height="1024" fill="#181a21"/>
+
+  <!-- Rounded icon -->
+  <rect
+    x="125"
+    y="125"
+    width="774"
+    height="774"
+    rx="150"
+    fill="url(#bg)"
+    filter="url(#shadow)"/>
+
+  <!-- Subtle inner highlight -->
+  <rect
+    x="130"
+    y="130"
+    width="764"
+    height="764"
+    rx="145"
+    fill="none"
+    stroke="#ff9b35"
+    stroke-width="8"
+    opacity=".7"/>
+
+  <g clip-path="url(#iconClip)">
+
+    <!-- Camera body -->
+    <path
+      d="
+      M230 405
+      C230 350 275 310 330 310
+      L370 310
+      L390 270
+      C402 244 427 226 456 226
+      L582 226
+      C616 226 645 248 654 281
+      L665 318
+      L724 318
+      C774 318 805 358 805 407
+      L805 680
+      C805 733 770 768 720 768
+      L316 768
+      C265 768 230 731 230 680
+      Z"
+      fill="url(#cameraWhite)"/>
+
+    <!-- Camera left cut/diagonal details -->
+    <path
+      d="M230 425 L310 540 L390 680 L230 625 Z"
+      fill="#ffffff"/>
+
+    <path
+      d="M230 420 L315 540"
+      fill="none"
+      stroke="#9e2606"
+      stroke-width="7"/>
+
+    <path
+      d="M230 625 L390 680"
+      fill="none"
+      stroke="#9e2606"
+      stroke-width="7"/>
+
+    <!-- Top camera diagonal -->
+    <path
+      d="M415 226 L665 430 L650 330 L450 226 Z"
+      fill="#ffffff"/>
+
+    <path
+      d="M415 226 L665 430"
+      fill="none"
+      stroke="#9e2606"
+      stroke-width="8"/>
+
+    <!-- Camera right diagonal -->
+    <path
+      d="M665 318 L805 570 L805 690 L750 615 Z"
+      fill="#ffffff"/>
+
+    <path
+      d="M665 318 L805 570"
+      fill="none"
+      stroke="#9e2606"
+      stroke-width="7"/>
+
+    <!-- Small flash/top detail -->
+    <rect
+      x="290"
+      y="265"
+      width="55"
+      height="30"
+      rx="10"
+      fill="#ffffff"/>
+
+    <!-- Shutter/lens outer ring -->
+    <circle
+      cx="505"
+      cy="520"
+      r="185"
+      fill="url(#lensOuter)"/>
+
+    <!-- Outer lens ring -->
+    <circle
+      cx="505"
+      cy="520"
+      r="173"
+      fill="none"
+      stroke="#8f2506"
+      stroke-width="13"/>
+
+    <!-- Ring highlights -->
+    <circle
+      cx="505"
+      cy="520"
+      r="158"
+      fill="none"
+      stroke="#ff7c17"
+      stroke-width="8"
+      stroke-dasharray="7 18"
+      stroke-linecap="round"/>
+
+    <circle
+      cx="505"
+      cy="520"
+      r="143"
+      fill="none"
+      stroke="#ff9b26"
+      stroke-width="9"
+      stroke-dasharray="36 18"
+      stroke-linecap="round"/>
+
+    <!-- Main white lens -->
+    <circle
+      cx="505"
+      cy="520"
+      r="126"
+      fill="#ffffff"/>
+
+    <!-- Lens center ring -->
+    <circle
+      cx="505"
+      cy="520"
+      r="67"
+      fill="none"
+      stroke="#e84a08"
+      stroke-width="14"/>
+
+    <!-- Lens center -->
+    <circle
+      cx="505"
+      cy="520"
+      r="38"
+      fill="url(#lensCenter)"/>
+
+    <!-- Small lens reflection/detail -->
+    <circle
+      cx="584"
+      cy="450"
+      r="17"
+      fill="#ff4b08"/>
+
+    <!-- Lens glow marks -->
+    <g fill="#ffad31" filter="url(#glow)">
+      <rect x="500" y="318" width="10" height="39" rx="5"/>
+      <rect x="500" y="681" width="10" height="39" rx="5"/>
+      <rect x="303" y="515" width="39" height="10" rx="5"/>
+      <rect x="668" y="515" width="39" height="10" rx="5"/>
+      <circle cx="322" cy="520" r="7"/>
+      <circle cx="690" cy="520" r="7"/>
+    </g>
+
+    <!-- Additional orange lens accents -->
+    <path
+      d="M333 492 A175 175 0 0 1 400 387"
+      fill="none"
+      stroke="#ff8b21"
+      stroke-width="8"
+      stroke-linecap="round"/>
+
+    <path
+      d="M610 380 A175 175 0 0 1 667 492"
+      fill="none"
+      stroke="#ff9d2d"
+      stroke-width="9"
+      stroke-linecap="round"/>
+
+    <path
+      d="M365 610 A175 175 0 0 0 395 650"
+      fill="none"
+      stroke="#ff8b21"
+      stroke-width="10"
+      stroke-linecap="round"/>
+
+    <!-- Bottom heartbeat line -->
+    <path
+      d="
+      M385 726
+      L425 726
+      L446 695
+      L470 755
+      L500 665
+      L526 776
+      L551 691
+      L570 726
+      L615 726"
+      fill="none"
+      stroke="#ffffff"
+      stroke-width="12"
+      stroke-linecap="round"
+      stroke-linejoin="round"
+      filter="url(#glow)"/>
+
+    <!-- Plus symbol -->
+    <g
+      fill="#ffffff"
+      filter="url(#glow)">
+      <rect
+        x="668"
+        y="666"
+        width="35"
+        height="105"
+        rx="12"/>
+      <rect
+        x="633"
+        y="701"
+        width="105"
+        height="35"
+        rx="12"/>
+    </g>
+
+  </g>
+</svg>

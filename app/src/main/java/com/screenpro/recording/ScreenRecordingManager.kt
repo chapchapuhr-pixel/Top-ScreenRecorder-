@@ -289,10 +289,10 @@ class ScreenRecordingManager(private val context: Context) {
             recorder.prepare()
 
             val densityDpi = context.resources.displayMetrics.densityDpi
-            val isCameraActive = params.enableFaceCam || (params.cameraMode != "off")
+            val isDualActive = (params.cameraMode == "dual" || params.cameraMode == "dual_only")
             val isDualOnly = (params.cameraMode == "dual_only")
 
-            if (isCameraActive) {
+            if (isDualActive) {
                 val comp = ScreenCameraCompositor(
                     outputSurface = recorder.surface,
                     videoWidth = encWidth,
@@ -311,18 +311,16 @@ class ScreenRecordingManager(private val context: Context) {
                     mode = params.cameraMode,
                     layout = params.dualCameraLayout
                 )
-                if (params.cameraMode == "dual" || params.cameraMode == "dual_only") {
-                    comp.updateSecondaryConfig(
-                        enabled = true,
-                        shape = params.secondaryCameraShape,
-                        posX = params.secondaryCameraPositionX,
-                        posY = params.secondaryCameraPositionY,
-                        scale = params.secondaryCameraScale,
-                        borderWidthDp = params.secondaryCameraBorderWidth,
-                        borderColorHex = params.secondaryCameraBorderColor,
-                        isMirrored = params.secondaryCameraMirrored
-                    )
-                }
+                comp.updateSecondaryConfig(
+                    enabled = true,
+                    shape = params.secondaryCameraShape,
+                    posX = params.secondaryCameraPositionX,
+                    posY = params.secondaryCameraPositionY,
+                    scale = params.secondaryCameraScale,
+                    borderWidthDp = params.secondaryCameraBorderWidth,
+                    borderColorHex = params.secondaryCameraBorderColor,
+                    isMirrored = params.secondaryCameraMirrored
+                )
                 comp.start()
                 this.compositor = comp
 
@@ -341,18 +339,11 @@ class ScreenRecordingManager(private val context: Context) {
 
                 val camMgr = DualCameraCaptureManager(context)
                 this.dualCameraCaptureManager = camMgr
-                if (params.cameraMode == "dual" || params.cameraMode == "dual_only") {
-                    camMgr.startDualCapture(
-                        primarySurface = comp.camera1Surface!!,
-                        secondarySurface = comp.camera2Surface!!,
-                        primaryIsFront = params.cameraIsFront
-                    )
-                } else {
-                    camMgr.startSingleCapture(
-                        targetSurface = comp.camera1Surface!!,
-                        useFrontCamera = params.cameraIsFront
-                    )
-                }
+                camMgr.startDualCapture(
+                    primarySurface = comp.camera1Surface!!,
+                    secondarySurface = comp.camera2Surface!!,
+                    primaryIsFront = params.cameraIsFront
+                )
             } else {
                 virtualDisplay = projection?.createVirtualDisplay(
                     "ScreenRecorderCaptureDisplay",

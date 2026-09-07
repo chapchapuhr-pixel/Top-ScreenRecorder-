@@ -213,6 +213,13 @@ class MainActivity : ComponentActivity() {
             putExtra("SHOW_TOUCHES", settings.showTouches)
         }
 
+        if (settings.cameraEnabled) {
+            com.screenpro.recording.FaceCamController.setFaceCamEnabled(true)
+            if (!FloatingBallService.isRunning && (Build.VERSION.SDK_INT < Build.VERSION_CODES.M || Settings.canDrawOverlays(this))) {
+                FloatingBallService.start(this)
+            }
+        }
+
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             startForegroundService(serviceIntent)
         } else {
