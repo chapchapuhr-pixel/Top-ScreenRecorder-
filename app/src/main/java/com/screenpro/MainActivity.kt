@@ -53,7 +53,6 @@ import com.screenpro.service.ScreenRecordService
 import com.screenpro.storage.MediaStoreRepository
 import com.screenpro.ui.components.CountdownOverlay
 import com.screenpro.ui.components.DrawingOverlay
-import com.screenpro.ui.components.FaceCamBubble
 import com.screenpro.ui.components.FloatingControlBall
 import com.screenpro.ui.screens.HomeScreen
 import com.screenpro.ui.screens.LibraryScreen
@@ -120,7 +119,6 @@ class MainActivity : ComponentActivity() {
     // Overlays
     private var showCountdown by mutableStateOf(false)
     private var showDrawing by mutableStateOf(false)
-    private var showFaceCam by mutableStateOf(false)
 
     // Pending projection state for countdown
     private var pendingProjectionData: Intent? = null
@@ -136,7 +134,6 @@ class MainActivity : ComponentActivity() {
         // It must remain off until the user explicitly clicks FaceCam on the floating ball or quick tool.
         settingsManager.updateSettings(settingsManager.settings.value.copy(cameraEnabled = false))
         com.screenpro.recording.FaceCamController.setFaceCamEnabled(false)
-        showFaceCam = false
 
         // When user accepts app permissions, automatically show floating ball on screen
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
@@ -175,7 +172,6 @@ class MainActivity : ComponentActivity() {
                     settingsManager.updateSettings(settingsManager.settings.value.copy(cameraEnabled = true))
                 }
                 com.screenpro.recording.FaceCamController.setFaceCamEnabled(true)
-                showFaceCam = false
                 Toast.makeText(this, "FaceCam activated!", Toast.LENGTH_SHORT).show()
             }
         } else {
@@ -337,12 +333,6 @@ class MainActivity : ComponentActivity() {
         refreshMediaItems()
         handleIncomingIntent(intent)
 
-        if (!isRecording.value) {
-            com.screenpro.recording.FaceCamController.setFaceCamEnabled(false)
-            settingsManager.updateSettings(settingsManager.settings.value.copy(cameraEnabled = false))
-            showFaceCam = false
-        }
-
         lifecycleScope.launch {
             repeatOnLifecycle(Lifecycle.State.STARTED) {
                 RecordingController.recordingCompletedEvent.collect {
@@ -496,13 +486,11 @@ class MainActivity : ComponentActivity() {
                                                         settingsManager.updateSettings(settings.copy(cameraEnabled = true))
                                                     }
                                                     com.screenpro.recording.FaceCamController.setFaceCamEnabled(true)
-                                                    showFaceCam = false
                                                 }
                                             }
                                         } else {
                                             settingsManager.updateSettings(settings.copy(cameraEnabled = false))
                                             com.screenpro.recording.FaceCamController.setFaceCamEnabled(false)
-                                            showFaceCam = false
                                         }
                                     },
                                     onToggleFloatingBallClick = {
@@ -674,53 +662,6 @@ class MainActivity : ComponentActivity() {
                             )
                         }
 
-                        // FaceCam (In-app fallback: ONLY render inside MainActivity if system overlay service is unavailable)
-                        if ((showFaceCam || settings.cameraEnabled) && !FloatingBallService.isRunning && (Build.VERSION.SDK_INT < Build.VERSION_CODES.M || !Settings.canDrawOverlays(this@MainActivity))) {
-                            FaceCamBubble(
-                                shapeType = settings.cameraShape,
-                                sizeType = settings.cameraSize,
-                                borderWidthDp = settings.cameraBorderWidth,
-                                borderColorHex = settings.cameraBorderColor,
-                                isMirrored = settings.cameraMirrored,
-                                isRecordingActive = recording,
-                                initialPosX = settings.cameraPositionX,
-                                initialPosY = settings.cameraPositionY,
-                                onPositionChanged = { pctX, pctY ->
-                                    settingsManager.updateSettings(
-                                        settings.copy(cameraPositionX = pctX, cameraPositionY = pctY)
-                                    )
-                                    if (recording) {
-                                        val updateIntent = Intent(this@MainActivity, ScreenRecordService::class.java).apply {
-                                            action = ScreenRecordService.ACTION_UPDATE_FACECAM
-                                            putExtra("CAMERA_POS_X", pctX)
-                                            putExtra("CAMERA_POS_Y", pctY)
-                                        }
-                                        startService(updateIntent)
-                                    }
-                                },
-                                onSizeChanged = { size, scale ->
-                                    settingsManager.updateSettings(
-                                        settings.copy(cameraSize = size, cameraScale = scale)
-                                    )
-                                },
-                                onShapeChanged = { shape ->
-                                    settingsManager.updateSettings(
-                                        settings.copy(cameraShape = shape)
-                                    )
-                                },
-                                onMirrorToggled = { mirrored ->
-                                    settingsManager.updateSettings(
-                                        settings.copy(cameraMirrored = mirrored)
-                                    )
-                                },
-                                onClose = {
-                                    showFaceCam = false
-                                    settingsManager.updateSettings(settings.copy(cameraEnabled = false))
-                                    com.screenpro.recording.FaceCamController.setFaceCamEnabled(false)
-                                }
-                            )
-                        }
-
                         // Floating Control Ball (In-app fallback when system service is not running)
                         if (settings.floatingBallEnabled && !FloatingBallService.isRunning) {
                             FloatingControlBall(
@@ -753,7 +694,6 @@ class MainActivity : ComponentActivity() {
                                     val newEnabled = !settings.cameraEnabled
                                     settingsManager.updateSettings(settings.copy(cameraEnabled = newEnabled))
                                     com.screenpro.recording.FaceCamController.setFaceCamEnabled(newEnabled)
-                                    showFaceCam = newEnabled
                                 },
                                 onToggleDrawing = {
                                     showDrawing = !showDrawing

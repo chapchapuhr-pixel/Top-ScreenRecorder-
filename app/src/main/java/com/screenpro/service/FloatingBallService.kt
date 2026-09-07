@@ -88,6 +88,8 @@ class FloatingBallService : Service() {
     private var isCurrentlyHiddenForRecording = false
 
     // System-wide Floating FaceCam overlay views
+    private val faceCamLock = Any()
+    @Volatile private var isCreatingFaceCam = false
     private var faceCamComposeView: ComposeView? = null
     private var faceCamLayoutParams: WindowManager.LayoutParams? = null
     private var faceCamPosX = 800
@@ -154,7 +156,10 @@ class FloatingBallService : Service() {
         initOverlayWindow()
 
         serviceScope.launch {
-            settingsManager.settings.collectLatest { settings ->
+            combine(
+                settingsManager.settings,
+                FaceCamController.isFaceCamHidden
+            ) { settings, _ -> settings }.collectLatest { settings ->
                 syncFaceCamOverlay(settings)
             }
         }
@@ -165,13 +170,6 @@ class FloatingBallService : Service() {
                 if (current.cameraEnabled != enabled) {
                     settingsManager.updateSettings(current.copy(cameraEnabled = enabled))
                 }
-                syncFaceCamOverlay(settingsManager.settings.value)
-            }
-        }
-
-        serviceScope.launch {
-            FaceCamController.isFaceCamHidden.collectLatest {
-                syncFaceCamOverlay(settingsManager.settings.value)
             }
         }
     }
@@ -266,9 +264,6 @@ class FloatingBallService : Service() {
                         if (RecordingController.isRecording.value) {
                             // Immediately reset recording state so next tap records another video
                             RecordingController.onRecordingStopped()
-                            FaceCamController.setFaceCamEnabled(false)
-                            settingsManager.updateSettings(settings.copy(cameraEnabled = false))
-                            removeFaceCamOverlay()
 
                             val stopIntent = Intent(applicationContext, ScreenRecordService::class.java).apply {
                                 action = ScreenRecordService.ACTION_STOP
@@ -289,9 +284,6 @@ class FloatingBallService : Service() {
                         if (RecordingController.isRecording.value) {
                             // Immediately reset recording state so next tap records another video
                             RecordingController.onRecordingStopped()
-                            FaceCamController.setFaceCamEnabled(false)
-                            settingsManager.updateSettings(settings.copy(cameraEnabled = false))
-                            removeFaceCamOverlay()
 
                             val stopIntent = Intent(applicationContext, ScreenRecordService::class.java).apply {
                                 action = ScreenRecordService.ACTION_STOP
@@ -313,10 +305,6 @@ class FloatingBallService : Service() {
                         updateWindowForMenuState(false)
                     },
                     onSaveRecording = {
-                        FaceCamController.setFaceCamEnabled(false)
-                        settingsManager.updateSettings(settings.copy(cameraEnabled = false))
-                        removeFaceCamOverlay()
-
                         RecordingController.hideFloatingPreview()
                         val saveIntent = Intent(applicationContext, ScreenRecordService::class.java).apply {
                             action = ScreenRecordService.ACTION_SAVE_AND_FINISH
@@ -326,10 +314,6 @@ class FloatingBallService : Service() {
                         Toast.makeText(applicationContext, "Video saved to gallery!", Toast.LENGTH_SHORT).show()
                     },
                     onEditRecording = {
-                        FaceCamController.setFaceCamEnabled(false)
-                        settingsManager.updateSettings(settings.copy(cameraEnabled = false))
-                        removeFaceCamOverlay()
-
                         RecordingController.hideFloatingPreview()
                         val saveIntent = Intent(applicationContext, ScreenRecordService::class.java).apply {
                             action = ScreenRecordService.ACTION_SAVE_AND_FINISH
@@ -343,10 +327,6 @@ class FloatingBallService : Service() {
                         startActivity(editorIntent)
                     },
                     onDiscardRecording = {
-                        FaceCamController.setFaceCamEnabled(false)
-                        settingsManager.updateSettings(settings.copy(cameraEnabled = false))
-                        removeFaceCamOverlay()
-
                         RecordingController.hideFloatingPreview()
                         val discardIntent = Intent(applicationContext, ScreenRecordService::class.java).apply {
                             action = ScreenRecordService.ACTION_DISCARD
@@ -355,10 +335,6 @@ class FloatingBallService : Service() {
                         updateWindowForMenuState(false)
                     },
                     onClosePreview = {
-                        FaceCamController.setFaceCamEnabled(false)
-                        settingsManager.updateSettings(settings.copy(cameraEnabled = false))
-                        removeFaceCamOverlay()
-
                         RecordingController.hideFloatingPreview()
                         updateWindowForMenuState(false)
                     },
@@ -589,28 +565,33 @@ class FloatingBallService : Service() {
     }
 
     private fun syncFaceCamOverlay(settings: com.screenpro.data.model.AppSettings) {
-        if (!Settings.canDrawOverlays(this)) return
+        synchronized(faceCamLock) {
+            if (!Settings.canDrawOverlays(this)) return
 
-        val isCameraPermitted = ContextCompat.checkSelfPermission(
-            this,
-            Manifest.permission.CAMERA
-        ) == PackageManager.PERMISSION_GRANTED
+            val isCameraPermitted = ContextCompat.checkSelfPermission(
+                this,
+                Manifest.permission.CAMERA
+            ) == PackageManager.PERMISSION_GRANTED
 
-        val shouldShowFaceCam = settings.cameraEnabled && isCameraPermitted
+            val shouldShowFaceCam = settings.cameraEnabled && isCameraPermitted
 
-        if (shouldShowFaceCam) {
-            if (faceCamComposeView == null) {
-                createFaceCamOverlay(settings)
+            if (shouldShowFaceCam) {
+                if (faceCamComposeView == null && !isCreatingFaceCam) {
+                    createFaceCamOverlay(settings)
+                } else if (faceCamComposeView != null) {
+                    updateFaceCamLayoutDimensions(settings)
+                }
             } else {
-                updateFaceCamLayoutDimensions(settings)
+                removeFaceCamOverlay()
             }
-        } else {
-            removeFaceCamOverlay()
         }
     }
 
     private fun createFaceCamOverlay(settings: com.screenpro.data.model.AppSettings) {
-        if (faceCamComposeView != null) return
+        synchronized(faceCamLock) {
+            if (faceCamComposeView != null || isCreatingFaceCam) return
+            isCreatingFaceCam = true
+        }
 
         val isCollapsed = FaceCamController.isFaceCamHidden.value
         val (widthPx, heightPx) = getFaceCamDimensions(settings, isCollapsed)
@@ -641,7 +622,10 @@ class FloatingBallService : Service() {
         }
         faceCamLayoutParams = params
 
-        val owner = lifecycleOwner ?: return
+        val owner = lifecycleOwner ?: run {
+            synchronized(faceCamLock) { isCreatingFaceCam = false }
+            return
+        }
 
         val view = ComposeView(this).apply {
             setViewCompositionStrategy(ViewCompositionStrategy.DisposeOnDetachedFromWindow)
@@ -707,11 +691,20 @@ class FloatingBallService : Service() {
             }
         }
 
-        try {
-            windowManager.addView(view, params)
-            faceCamComposeView = view
-        } catch (e: Exception) {
-            e.printStackTrace()
+        synchronized(faceCamLock) {
+            try {
+                // Ensure any previous view instance is detached before adding new one
+                faceCamComposeView?.let { oldView ->
+                    try { windowManager.removeView(oldView) } catch (_: Exception) {}
+                }
+                windowManager.addView(view, params)
+                faceCamComposeView = view
+            } catch (e: Exception) {
+                e.printStackTrace()
+                faceCamComposeView = null
+            } finally {
+                isCreatingFaceCam = false
+            }
         }
     }
 
@@ -731,15 +724,18 @@ class FloatingBallService : Service() {
     }
 
     private fun removeFaceCamOverlay() {
-        faceCamComposeView?.let {
-            try {
-                windowManager.removeView(it)
-            } catch (e: Exception) {
-                e.printStackTrace()
+        synchronized(faceCamLock) {
+            faceCamComposeView?.let {
+                try {
+                    windowManager.removeView(it)
+                } catch (e: Exception) {
+                    e.printStackTrace()
+                }
             }
+            faceCamComposeView = null
+            faceCamLayoutParams = null
+            isCreatingFaceCam = false
         }
-        faceCamComposeView = null
-        faceCamLayoutParams = null
     }
 
     override fun onDestroy() {

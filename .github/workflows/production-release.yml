@@ -1,0 +1,170 @@
+name: Production Release (Signed AAB & APK)
+
+on:
+  push:
+    branches: [ main, master ]
+    tags: [ 'v*' ]
+  pull_request:
+    branches: [ main, master ]
+  workflow_dispatch:
+    inputs:
+      version_tag:
+        description: 'Release Tag (e.g. v1.0.0)'
+        required: false
+        default: 'v1.0.0'
+      release_title:
+        description: 'Release Title'
+        required: false
+        default: 'Free Screen Recorder Production Release'
+
+permissions:
+  contents: write
+
+jobs:
+  production-build:
+    name: Build, Sign & Package Production AAB & APK
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '17'
+          cache: 'gradle'
+
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.11.1'
+
+      - name: Prepare Gradle Wrapper
+        run: |
+          mkdir -p gradle/wrapper
+          if [ ! -f "gradle/wrapper/gradle-wrapper.jar" ] || [ ! -s "gradle/wrapper/gradle-wrapper.jar" ]; then
+            echo "Fetching official Gradle 8.11.1 wrapper jar..."
+            curl -sLo gradle/wrapper/gradle-wrapper.jar https://raw.githubusercontent.com/gradle/gradle/v8.11.1/gradle/wrapper/gradle-wrapper.jar || true
+          fi
+          if [ ! -f "gradle/wrapper/gradle-wrapper.jar" ] || [ ! -s "gradle/wrapper/gradle-wrapper.jar" ]; then
+            echo "Regenerating wrapper with Gradle CLI..."
+            gradle wrapper --gradle-version 8.11.1 --distribution-type bin
+          fi
+          chmod +x gradlew
+
+      - name: Restore Keystores
+        run: |
+          # 1. Restore debug.keystore if needed
+          if [ -f "debug.keystore.base64" ] && [ ! -f "debug.keystore" ]; then
+            base64 -d debug.keystore.base64 > debug.keystore
+          elif [ ! -f "debug.keystore" ]; then
+            keytool -genkey -v -keystore debug.keystore -storepass android -alias androiddebugkey -keypass android -keyalg RSA -keysize 2048 -validity 10000 -dname "CN=Android Debug,O=Android,C=US"
+          fi
+
+          # 2. Restore production release upload keystore
+          if [ -n "${{ secrets.RELEASE_KEYSTORE_BASE64 }}" ]; then
+            echo "${{ secrets.RELEASE_KEYSTORE_BASE64 }}" | base64 -d > release-upload.jks
+          elif [ -f "release-upload.jks.base64" ] && [ ! -f "release-upload.jks" ]; then
+            base64 -d release-upload.jks.base64 > release-upload.jks
+          fi
+
+          if [ ! -f "release-upload.jks" ]; then
+            echo "Generating release-upload.jks with specified credentials..."
+            keytool -genkey -v -keystore release-upload.jks \
+              -storepass 52775277Tanzania -keypass 52775277Tanzania \
+              -alias upload -keyalg RSA -keysize 2048 -validity 10000 \
+              -dname "CN=Free Screen Recorder, OU=Release, O=FreeScreenRecorder, C=US"
+          fi
+          ls -la *.jks *.keystore
+
+      - name: Build Production Release (AAB & APK)
+        run: |
+          if [ -f "gradle/wrapper/gradle-wrapper.jar" ] && [ -x "./gradlew" ]; then
+            ./gradlew assembleRelease bundleRelease --stacktrace --no-daemon
+          else
+            gradle assembleRelease bundleRelease --stacktrace --no-daemon
+          fi
+
+      - name: Organize & Sign Production Artifacts (Both AAB & APK)
+        id: package-artifacts
+        run: |
+          mkdir -p dist
+
+          # 1. Copy Release APK
+          RELEASE_APK=$(find app/build/outputs/apk/release -name "*.apk" 2>/dev/null | head -n 1)
+          if [ -z "$RELEASE_APK" ]; then
+            RELEASE_APK=$(find . -path "*/build/outputs/apk/release/*.apk" 2>/dev/null | head -n 1)
+          fi
+          cp "$RELEASE_APK" dist/FreeScreenRecorder-release.apk
+
+          # 2. Copy Release AAB
+          RELEASE_AAB=$(find app/build/outputs/bundle/release -name "*.aab" 2>/dev/null | head -n 1)
+          if [ -z "$RELEASE_AAB" ]; then
+            RELEASE_AAB=$(find . -path "*/build/outputs/bundle/release/*.aab" 2>/dev/null | head -n 1)
+          fi
+          cp "$RELEASE_AAB" dist/FreeScreenRecorder-release.aab
+
+          # 3. Sign AAB with release keystore
+          if [ -f "release-upload.jks" ]; then
+            echo "Signing Google Play Store AAB..."
+            jarsigner -verbose -sigalg SHA256withRSA -digestalg SHA-256 \
+              -keystore release-upload.jks -storepass 52775277Tanzania -keypass 52775277Tanzania \
+              dist/FreeScreenRecorder-release.aab upload
+            jarsigner -verify -verbose -certs dist/FreeScreenRecorder-release.aab
+          fi
+
+          # 4. Sign and verify APK with apksigner (v1, v2, v3 schemes)
+          APKSIGNER_BIN=$(find $ANDROID_HOME/build-tools/ -name apksigner 2>/dev/null | sort -V | tail -n 1)
+          if [ -n "$APKSIGNER_BIN" ] && [ -f "release-upload.jks" ]; then
+            echo "Verifying and re-signing Release APK with apksigner..."
+            "$APKSIGNER_BIN" sign --ks release-upload.jks --ks-pass pass:52775277Tanzania \
+              --ks-key-alias upload --key-pass pass:52775277Tanzania \
+              --out dist/FreeScreenRecorder-release.apk dist/FreeScreenRecorder-release.apk || true
+            "$APKSIGNER_BIN" verify --verbose dist/FreeScreenRecorder-release.apk || true
+          fi
+
+          ls -lh dist/
+
+      - name: Generate Build Checksums & Summary
+        run: |
+          echo "### 📱 Production Build Summary (ID: co.freescreenrecorder.ap)" >> $GITHUB_STEP_SUMMARY
+          echo "| Artifact File | Size | SHA-256 Checksum | Purpose |" >> $GITHUB_STEP_SUMMARY
+          echo "|---|---|---|---|" >> $GITHUB_STEP_SUMMARY
+
+          cd dist
+          for f in *; do
+            if [ -f "$f" ]; then
+              SIZE=$(ls -lh "$f" | awk '{print $5}')
+              SHA=$(sha256sum "$f" | awk '{print $1}')
+              TARGET="Direct Install (Signed APK)"
+              if [[ "$f" == *".aab" ]]; then
+                TARGET="Google Play Store (Signed AAB)"
+              fi
+              echo "| **$f** | $SIZE | \`$SHA\` | $TARGET |" >> $GITHUB_STEP_SUMMARY
+            fi
+          done
+          cd ..
+
+      - name: Upload Single Consolidated Production Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: FreeScreenRecorder-production-signed
+          path: dist/*
+          retention-days: 90
+
+      - name: Publish to GitHub Release
+        if: startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch'
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.event.inputs.version_tag || github.ref_name }}
+          name: ${{ github.event.inputs.release_title || github.ref_name }}
+          files: dist/*
+          generate_release_notes: true
+          draft: false
+          prerelease: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
