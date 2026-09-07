@@ -131,10 +131,12 @@ class MainActivity : ComponentActivity() {
     ) { permissions ->
         val micGranted = permissions[Manifest.permission.RECORD_AUDIO] ?: false
         val cameraGranted = permissions[Manifest.permission.CAMERA] ?: false
-        if (cameraGranted) {
-            settingsManager.updateSettings(settingsManager.settings.value.copy(cameraEnabled = true))
-            com.screenpro.recording.FaceCamController.setFaceCamEnabled(true)
-        }
+
+        // FaceCam must NOT open automatically when user grants permissions.
+        // It must remain off until the user explicitly clicks FaceCam on the floating ball or quick tool.
+        settingsManager.updateSettings(settingsManager.settings.value.copy(cameraEnabled = false))
+        com.screenpro.recording.FaceCamController.setFaceCamEnabled(false)
+        showFaceCam = false
 
         // When user accepts app permissions, automatically show floating ball on screen
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
@@ -159,9 +161,23 @@ class MainActivity : ComponentActivity() {
         ActivityResultContracts.RequestPermission()
     ) { granted ->
         if (granted) {
-            settingsManager.updateSettings(settingsManager.settings.value.copy(cameraEnabled = true))
-            com.screenpro.recording.FaceCamController.setFaceCamEnabled(true)
-            Toast.makeText(this, "FaceCam activated! It will display during recording.", Toast.LENGTH_SHORT).show()
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M && !Settings.canDrawOverlays(this)) {
+                val intent = Intent(
+                    Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
+                    Uri.parse("package:$packageName")
+                )
+                overlayPermissionLauncher.launch(intent)
+            } else {
+                if (!FloatingBallService.isRunning) {
+                    settingsManager.updateSettings(settingsManager.settings.value.copy(floatingBallEnabled = true, cameraEnabled = true))
+                    FloatingBallService.start(this)
+                } else {
+                    settingsManager.updateSettings(settingsManager.settings.value.copy(cameraEnabled = true))
+                }
+                com.screenpro.recording.FaceCamController.setFaceCamEnabled(true)
+                showFaceCam = false
+                Toast.makeText(this, "FaceCam activated!", Toast.LENGTH_SHORT).show()
+            }
         } else {
             Toast.makeText(this, "Camera permission is needed for FaceCam", Toast.LENGTH_SHORT).show()
         }
@@ -314,6 +330,12 @@ class MainActivity : ComponentActivity() {
         refreshMediaItems()
         handleIncomingIntent(intent)
 
+        if (!isRecording.value) {
+            com.screenpro.recording.FaceCamController.setFaceCamEnabled(false)
+            settingsManager.updateSettings(settingsManager.settings.value.copy(cameraEnabled = false))
+            showFaceCam = false
+        }
+
         lifecycleScope.launch {
             repeatOnLifecycle(Lifecycle.State.STARTED) {
                 RecordingController.recordingCompletedEvent.collect {
@@ -453,9 +475,22 @@ class MainActivity : ComponentActivity() {
                                             if (androidx.core.content.ContextCompat.checkSelfPermission(this@MainActivity, Manifest.permission.CAMERA) != PackageManager.PERMISSION_GRANTED) {
                                                 cameraPermissionLauncher.launch(Manifest.permission.CAMERA)
                                             } else {
-                                                settingsManager.updateSettings(settings.copy(cameraEnabled = true))
-                                                com.screenpro.recording.FaceCamController.setFaceCamEnabled(true)
-                                                showFaceCam = true
+                                                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M && !Settings.canDrawOverlays(this@MainActivity)) {
+                                                    val intent = Intent(
+                                                        Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
+                                                        Uri.parse("package:$packageName")
+                                                    )
+                                                    overlayPermissionLauncher.launch(intent)
+                                                } else {
+                                                    if (!FloatingBallService.isRunning) {
+                                                        settingsManager.updateSettings(settings.copy(floatingBallEnabled = true, cameraEnabled = true))
+                                                        FloatingBallService.start(this@MainActivity)
+                                                    } else {
+                                                        settingsManager.updateSettings(settings.copy(cameraEnabled = true))
+                                                    }
+                                                    com.screenpro.recording.FaceCamController.setFaceCamEnabled(true)
+                                                    showFaceCam = false
+                                                }
                                             }
                                         } else {
                                             settingsManager.updateSettings(settings.copy(cameraEnabled = false))
@@ -632,7 +667,8 @@ class MainActivity : ComponentActivity() {
                             )
                         }
 
-                        if (showFaceCam || settings.cameraEnabled) {
+                        // FaceCam (In-app fallback: ONLY render inside MainActivity if system overlay service is unavailable)
+                        if ((showFaceCam || settings.cameraEnabled) && !FloatingBallService.isRunning && (Build.VERSION.SDK_INT < Build.VERSION_CODES.M || !Settings.canDrawOverlays(this@MainActivity))) {
                             FaceCamBubble(
                                 shapeType = settings.cameraShape,
                                 sizeType = settings.cameraSize,
@@ -673,6 +709,7 @@ class MainActivity : ComponentActivity() {
                                 onClose = {
                                     showFaceCam = false
                                     settingsManager.updateSettings(settings.copy(cameraEnabled = false))
+                                    com.screenpro.recording.FaceCamController.setFaceCamEnabled(false)
                                 }
                             )
                         }
@@ -683,7 +720,7 @@ class MainActivity : ComponentActivity() {
                                 isRecording = recording,
                                 isPaused = paused,
                                 durationSeconds = elapsed,
-                                isFaceCamActive = showFaceCam || settings.cameraEnabled,
+                                isFaceCamActive = settings.cameraEnabled,
                                 isDrawingActive = showDrawing,
                                 hideWhileRecording = settings.hideFloatingBallDuringRecording,
                                 onStartRecording = {
@@ -708,6 +745,7 @@ class MainActivity : ComponentActivity() {
                                 onToggleFaceCam = {
                                     val newEnabled = !settings.cameraEnabled
                                     settingsManager.updateSettings(settings.copy(cameraEnabled = newEnabled))
+                                    com.screenpro.recording.FaceCamController.setFaceCamEnabled(newEnabled)
                                     showFaceCam = newEnabled
                                 },
                                 onToggleDrawing = {

@@ -20,15 +20,23 @@ android {
     }
 
     signingConfigs {
-        getByName("debug") {
-            storeFile = file("${rootDir}/debug.keystore")
-            storePassword = "android"
-            keyAlias = "androiddebugkey"
-            keyPassword = "android"
+        create("release") {
+            val uploadKeystore = file("${rootDir}/release-upload.jks")
+            if (uploadKeystore.exists()) {
+                storeFile = uploadKeystore
+                storePassword = "52775277Tanzania"
+                keyAlias = "upload"
+                keyPassword = "52775277Tanzania"
+            } else {
+                storeFile = file("${rootDir}/debug.keystore")
+                storePassword = "android"
+                keyAlias = "androiddebugkey"
+                keyPassword = "android"
+            }
             enableV1Signing = true
             enableV2Signing = true
         }
-        create("release") {
+        getByName("debug") {
             val uploadKeystore = file("${rootDir}/release-upload.jks")
             if (uploadKeystore.exists()) {
                 storeFile = uploadKeystore
