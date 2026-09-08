@@ -566,6 +566,12 @@ class ScreenRecordingManager(private val context: Context) {
             return
         }
 
+        if (vDisplay == null) {
+            Log.e(tag, "Failed to create virtual display for screenshot: returned null")
+            imageReader.close()
+            return
+        }
+
         var captured = false
         imageReader.setOnImageAvailableListener({ reader ->
             if (captured) return@setOnImageAvailableListener
